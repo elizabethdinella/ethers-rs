@@ -163,6 +163,11 @@ impl Client {
         self.sanitize_response(res)
     }
 
+    async fn get_storage_json<T: DeserializeOwned, Q: Serialize>(&self, query: &Q) -> Result<StorageResponse<T>> {
+        let res = self.get(query).await?;
+        self.sanitize_storage_response(res)
+    }
+
     /// Execute a GET request with parameters, without sanity checking the response.
     async fn get<Q: Serialize>(&self, query: &Q) -> Result<String> {
         trace!(target: "etherscan", "GET {}", self.etherscan_api_url);
@@ -198,6 +203,38 @@ impl Client {
         Ok(response)
     }
 
+        /// Perform sanity checks on a response and deserialize it into a [Response].
+        fn sanitize_storage_response<T: DeserializeOwned>(&self, res: impl AsRef<str>) -> Result<StorageResponse<T>> {
+            let res = res.as_ref();
+            let res: ResponseData<T> = serde_json::from_str(res).map_err(|err| {
+                error!(target: "etherscan", ?res, "Failed to deserialize response: {}", err);
+                if res == "Page not found" {
+                    EtherscanError::PageNotFound
+                } else if is_blocked_by_cloudflare_response(res) {
+                    EtherscanError::BlockedByCloudflare
+                } else if is_cloudflare_security_challenge(res) {
+                    EtherscanError::CloudFlareSecurityChallenge
+                } else {
+                    EtherscanError::Serde(err)
+                }
+            })?;
+    
+            match res {
+                ResponseData::Error { result, message, status } => {
+                    if let Some(ref result) = result {
+                        if result.starts_with("Max rate limit reached") {
+                            return Err(EtherscanError::RateLimitExceeded)
+                        } else if result.to_lowercase() == "invalid api key" {
+                            return Err(EtherscanError::InvalidApiKey)
+                        }
+                    }
+                    Err(EtherscanError::ErrorResponse { status, message, result })
+                }
+                ResponseData::Success(res) => Err(EtherscanError::BadStatusCode("non-storage response".to_string())),
+                ResponseData::StorageSuccess(res) => Ok(res),
+            }
+        }
+
     /// Perform sanity checks on a response and deserialize it into a [Response].
     fn sanitize_response<T: DeserializeOwned>(&self, res: impl AsRef<str>) -> Result<Response<T>> {
         let res = res.as_ref();
@@ -226,6 +263,8 @@ impl Client {
                 Err(EtherscanError::ErrorResponse { status, message, result })
             }
             ResponseData::Success(res) => Ok(res),
+            ResponseData::StorageSuccess(res) => Err(EtherscanError::BadStatusCode("storage response".to_string())),
+
         }
     }
 
@@ -425,9 +464,17 @@ pub struct Response<T> {
 }
 
 #[derive(Deserialize, Debug, Clone)]
+pub struct StorageResponse<T> {
+    pub jsonrpc: String,
+    pub id: u64,
+    pub result: T,
+}
+
+#[derive(Deserialize, Debug, Clone)]
 #[serde(untagged)]
 pub enum ResponseData<T> {
     Success(Response<T>),
+    StorageSuccess(StorageResponse<T>),
     Error { status: String, message: String, result: Option<String> },
 }
 
