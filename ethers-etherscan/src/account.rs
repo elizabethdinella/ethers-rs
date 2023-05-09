@@ -1,4 +1,4 @@
-use crate::{Client, EtherscanError, Query, Response, StorageResponse, Result};
+use crate::{Client, EtherscanError, Query, Response, Result};
 use ethers_core::{
     abi::Address,
     types::{serde_helpers::*, BlockNumber, Bytes, H256, H32, U256},
@@ -564,20 +564,6 @@ impl Client {
         tx_params.insert("address", format!("{address:?}"));
         let query = self.create_query("account", "txlist", tx_params);
         let response: Response<Vec<NormalTransaction>> = self.get_json(&query).await?;
-
-        Ok(response.result)
-    }
-
-    pub async fn get_impl_address(
-        &self,
-        address: &Address,
-        params: Option<TxListParams>,
-    ) -> Result<String> {
-        let mut tx_params: HashMap<&str, String> = params.unwrap_or_default().into();
-        tx_params.insert("address", format!("{address:?}"));
-        tx_params.insert("position", format!("0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc"));
-        let query = self.create_query("proxy", "eth_getStorageAt", tx_params);
-        let response: StorageResponse<String> = self.get_storage_json(&query).await?;
 
         Ok(response.result)
     }
