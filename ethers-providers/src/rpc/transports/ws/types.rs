@@ -1,11 +1,9 @@
-use std::fmt;
-
+use crate::{common::Request, JsonRpcError};
 use ethers_core::types::U256;
 use futures_channel::{mpsc, oneshot};
 use serde::{de, Deserialize};
-use serde_json::value::RawValue;
-
-use crate::{common::Request, JsonRpcError};
+use serde_json::value::{to_raw_value, RawValue};
+use std::fmt;
 
 // Normal JSON-RPC response
 pub type Response = Result<Box<RawValue>, JsonRpcError>;
@@ -15,8 +13,7 @@ pub struct SubId(pub U256);
 
 impl SubId {
     pub(super) fn serialize_raw(&self) -> Result<Box<RawValue>, serde_json::Error> {
-        let s = serde_json::to_string(&self)?;
-        RawValue::from_string(s)
+        to_raw_value(&self)
     }
 }
 
@@ -142,6 +139,9 @@ impl<'de> Deserialize<'de> for PubSubItem {
                     (Some(id), None, Some(error), None, None) => {
                         Ok(PubSubItem::Error { id, error })
                     }
+                    (Some(id), Some(_), Some(error), None, None) => {
+                        Ok(PubSubItem::Error { id, error })
+                    }
                     (None, None, None, Some(_), Some(params)) => {
                         Ok(PubSubItem::Notification { params })
                     }
@@ -213,8 +213,7 @@ impl InFlight {
     }
 
     pub(super) fn serialize_raw(&self, id: u64) -> Result<Box<RawValue>, serde_json::Error> {
-        let s = serde_json::to_string(&self.to_request(id))?;
-        RawValue::from_string(s)
+        to_raw_value(&self.to_request(id))
     }
 }
 
@@ -231,8 +230,7 @@ impl ActiveSub {
     }
 
     pub(super) fn serialize_raw(&self, id: u64) -> Result<Box<RawValue>, serde_json::Error> {
-        let s = serde_json::to_string(&self.to_request(id))?;
-        RawValue::from_string(s)
+        to_raw_value(&self.to_request(id))
     }
 }
 
@@ -260,19 +258,18 @@ mod aliases {
 #[cfg(not(target_arch = "wasm32"))]
 mod aliases {
     pub use tokio_tungstenite::{
-        connect_async,
-        tungstenite::{self, protocol::CloseFrame},
+        connect_async, connect_async_with_config,
+        tungstenite::{self},
     };
     use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
+    pub type WebSocketConfig = tungstenite::protocol::WebSocketConfig;
     pub type Message = tungstenite::protocol::Message;
     pub type WsError = tungstenite::Error;
     pub type WsStreamItem = Result<Message, WsError>;
 
     pub use http::Request as HttpRequest;
-    pub use tracing::{debug, error, trace, warn};
-    pub use tungstenite::client::IntoClientRequest;
 
-    pub use tokio::time::sleep;
+    pub use tungstenite::client::IntoClientRequest;
 
     pub type InternalStream =
         futures_util::stream::Fuse<WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>>;

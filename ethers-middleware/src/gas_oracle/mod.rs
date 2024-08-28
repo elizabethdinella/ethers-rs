@@ -8,7 +8,9 @@ pub use eth_gas_station::EthGasStation;
 pub mod etherchain;
 pub use etherchain::Etherchain;
 
+#[cfg(feature = "etherscan")]
 pub mod etherscan;
+#[cfg(feature = "etherscan")]
 pub use etherscan::Etherscan;
 
 pub mod middleware;
@@ -70,6 +72,7 @@ pub enum GasOracleError {
     /// An internal error in the Etherscan client request made from the underlying
     /// gas oracle
     #[error(transparent)]
+    #[cfg(feature = "etherscan")]
     EtherscanError(#[from] ethers_etherscan::errors::EtherscanError),
 
     /// An internal error thrown when the required gas category is not
@@ -152,8 +155,8 @@ pub trait GasOracle: Send + Sync + Debug {
 
 #[inline]
 #[doc(hidden)]
-pub(crate) fn from_gwei_f64(gwei: f64) -> U256 {
-    ethers_core::types::u256_from_f64_saturating(gwei) * GWEI_TO_WEI_U256
+pub fn from_gwei_f64(gwei: f64) -> U256 {
+    U256::from((gwei * GWEI_TO_WEI as f64).ceil() as u64)
 }
 
 #[cfg(test)]
@@ -165,5 +168,13 @@ mod tests {
         let as_u256: U256 = GWEI_TO_WEI.into();
         assert_eq!(as_u256, GWEI_TO_WEI_U256);
         assert_eq!(GWEI_TO_WEI_U256.as_u64(), GWEI_TO_WEI);
+    }
+
+    #[test]
+    fn test_gwei_conversion() {
+        let max_priority_fee: f64 = 1.8963421368;
+
+        let result = from_gwei_f64(max_priority_fee);
+        assert_eq!(result, U256::from(1896342137));
     }
 }

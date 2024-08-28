@@ -1102,7 +1102,10 @@ impl I256 {
             (255.., Sign::Negative) => Self::minus_one(),
 
             // Rust cannot prove that the above is exhaustive for usize (works for any other int)
-            _ => unreachable!(),
+            #[allow(unreachable_patterns)]
+            _ => {
+                unreachable!()
+            }
         }
     }
 
@@ -1615,7 +1618,6 @@ fn handle_overflow((result, overflow): (I256, bool)) -> I256 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::abi::Tokenizable;
     use once_cell::sync::Lazy;
     use serde_json::json;
     use std::ops::Neg;
@@ -1673,13 +1675,13 @@ mod tests {
 
                 assert!(matches!(<$signed>::try_from(small_positive), Ok(42)));
                 assert!(matches!(<$signed>::try_from(small_negative), Ok(-42)));
-                assert!(matches!(<$signed>::try_from(large_positive), Err(_)));
-                assert!(matches!(<$signed>::try_from(large_negative), Err(_)));
+                assert!(<$signed>::try_from(large_positive).is_err());
+                assert!(<$signed>::try_from(large_negative).is_err());
 
                 assert!(matches!(<$unsigned>::try_from(small_positive), Ok(42)));
-                assert!(matches!(<$unsigned>::try_from(small_negative), Err(_)));
-                assert!(matches!(<$unsigned>::try_from(large_positive), Err(_)));
-                assert!(matches!(<$unsigned>::try_from(large_negative), Err(_)));
+                assert!(<$unsigned>::try_from(small_negative).is_err());
+                assert!(<$unsigned>::try_from(large_positive).is_err());
+                assert!(<$unsigned>::try_from(large_negative).is_err());
             };
         }
 

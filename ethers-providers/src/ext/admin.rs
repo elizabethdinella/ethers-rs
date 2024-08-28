@@ -128,13 +128,15 @@ pub enum EthPeerInfo {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct EthInfo {
     /// The negotiated eth version.
+    #[serde(default)]
     pub version: u64,
 
     /// The total difficulty of the peer's blockchain.
-    #[serde(deserialize_with = "deserialize_stringified_numeric")]
+    #[serde(default, deserialize_with = "deserialize_stringified_numeric")]
     pub difficulty: U256,
 
     /// The hash of the peer's best known block.
+    #[serde(default)]
     pub head: H256,
 }
 
@@ -168,7 +170,7 @@ pub struct SnapInfo {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct PeerInfo {
     /// The peer's ENR.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub enr: Option<Enr<SigningKey>>,
 
     /// The peer's enode URL.
@@ -319,7 +321,7 @@ mod tests {
                     "config":{
                         "chainId":0,
                         "eip150Hash":"0x0000000000000000000000000000000000000000000000000000000000000000",
-                        "terminalTotalDifficulty":58750000000000000000000,
+                        "terminalTotalDifficulty": "0xC70D808A128D7380000",
                         "terminalTotalDifficultyPassed":true,
                         "ethash":{}
                     },
@@ -368,7 +370,7 @@ mod tests {
                         "londonBlock": 12965000,
                         "arrowGlacierBlock": 13773000,
                         "grayGlacierBlock": 15050000,
-                        "terminalTotalDifficulty": 58750000000000000000000,
+                        "terminalTotalDifficulty": "0xC70D808A128D7380000",
                         "terminalTotalDifficultyPassed": true,
                         "ethash": {}
                     },

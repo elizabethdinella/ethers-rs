@@ -13,6 +13,9 @@ use rlp::Decodable;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+#[cfg(feature = "optimism")]
+use super::optimism::{DepositTransaction, DepositTransactionError};
+
 /// The TypedTransaction enum represents all Ethereum transaction types.
 ///
 /// Its variants correspond to specific allowed transactions:
@@ -29,14 +32,18 @@ use thiserror::Error;
 #[cfg_attr(feature = "legacy", serde(untagged))]
 pub enum TypedTransaction {
     // 0x00
-    #[serde(rename = "0x00")]
+    #[serde(rename = "0x00", alias = "0x0")]
     Legacy(TransactionRequest),
     // 0x01
-    #[serde(rename = "0x01")]
+    #[serde(rename = "0x01", alias = "0x1")]
     Eip2930(Eip2930TransactionRequest),
     // 0x02
-    #[serde(rename = "0x02")]
+    #[serde(rename = "0x02", alias = "0x2")]
     Eip1559(Eip1559TransactionRequest),
+    // 0x7E
+    #[cfg(feature = "optimism")]
+    #[serde(rename = "0x7E")]
+    DepositTransaction(DepositTransaction),
 }
 
 /// An error involving a typed transaction request.
@@ -51,6 +58,10 @@ pub enum TypedTransactionError {
     /// When decoding a signed Eip2930 transaction
     #[error(transparent)]
     Eip2930Error(#[from] Eip2930RequestError),
+    /// When decoding a signed Optimism Deposited transaction
+    #[cfg(feature = "optimism")]
+    #[error(transparent)]
+    DepositTransactionError(#[from] DepositTransactionError),
     /// Error decoding the transaction type from the transaction's RLP encoding
     #[error(transparent)]
     TypeDecodingError(#[from] rlp::DecoderError),
@@ -84,6 +95,8 @@ impl TypedTransaction {
             Legacy(inner) => inner.from.as_ref(),
             Eip2930(inner) => inner.tx.from.as_ref(),
             Eip1559(inner) => inner.from.as_ref(),
+            #[cfg(feature = "optimism")]
+            DepositTransaction(inner) => inner.tx.from.as_ref(),
         }
     }
 
@@ -92,6 +105,8 @@ impl TypedTransaction {
             Legacy(inner) => inner.from = Some(from),
             Eip2930(inner) => inner.tx.from = Some(from),
             Eip1559(inner) => inner.from = Some(from),
+            #[cfg(feature = "optimism")]
+            DepositTransaction(inner) => inner.tx.from = Some(from),
         };
         self
     }
@@ -101,6 +116,8 @@ impl TypedTransaction {
             Legacy(inner) => inner.to.as_ref(),
             Eip2930(inner) => inner.tx.to.as_ref(),
             Eip1559(inner) => inner.to.as_ref(),
+            #[cfg(feature = "optimism")]
+            DepositTransaction(inner) => inner.tx.to.as_ref(),
         }
     }
 
@@ -114,6 +131,8 @@ impl TypedTransaction {
             Legacy(inner) => inner.to = Some(to),
             Eip2930(inner) => inner.tx.to = Some(to),
             Eip1559(inner) => inner.to = Some(to),
+            #[cfg(feature = "optimism")]
+            DepositTransaction(inner) => inner.tx.to = Some(to),
         };
         self
     }
@@ -123,6 +142,8 @@ impl TypedTransaction {
             Legacy(inner) => inner.nonce.as_ref(),
             Eip2930(inner) => inner.tx.nonce.as_ref(),
             Eip1559(inner) => inner.nonce.as_ref(),
+            #[cfg(feature = "optimism")]
+            DepositTransaction(inner) => inner.tx.nonce.as_ref(),
         }
     }
 
@@ -132,6 +153,8 @@ impl TypedTransaction {
             Legacy(inner) => inner.nonce = Some(nonce),
             Eip2930(inner) => inner.tx.nonce = Some(nonce),
             Eip1559(inner) => inner.nonce = Some(nonce),
+            #[cfg(feature = "optimism")]
+            DepositTransaction(inner) => inner.tx.nonce = Some(nonce),
         };
         self
     }
@@ -141,6 +164,8 @@ impl TypedTransaction {
             Legacy(inner) => inner.value.as_ref(),
             Eip2930(inner) => inner.tx.value.as_ref(),
             Eip1559(inner) => inner.value.as_ref(),
+            #[cfg(feature = "optimism")]
+            DepositTransaction(inner) => inner.tx.value.as_ref(),
         }
     }
 
@@ -150,6 +175,8 @@ impl TypedTransaction {
             Legacy(inner) => inner.value = Some(value),
             Eip2930(inner) => inner.tx.value = Some(value),
             Eip1559(inner) => inner.value = Some(value),
+            #[cfg(feature = "optimism")]
+            DepositTransaction(inner) => inner.tx.value = Some(value),
         };
         self
     }
@@ -159,6 +186,8 @@ impl TypedTransaction {
             Legacy(inner) => inner.gas.as_ref(),
             Eip2930(inner) => inner.tx.gas.as_ref(),
             Eip1559(inner) => inner.gas.as_ref(),
+            #[cfg(feature = "optimism")]
+            DepositTransaction(inner) => inner.tx.gas.as_ref(),
         }
     }
 
@@ -167,6 +196,8 @@ impl TypedTransaction {
             Legacy(inner) => &mut inner.gas,
             Eip2930(inner) => &mut inner.tx.gas,
             Eip1559(inner) => &mut inner.gas,
+            #[cfg(feature = "optimism")]
+            DepositTransaction(inner) => &mut inner.tx.gas,
         }
     }
 
@@ -176,6 +207,8 @@ impl TypedTransaction {
             Legacy(inner) => inner.gas = Some(gas),
             Eip2930(inner) => inner.tx.gas = Some(gas),
             Eip1559(inner) => inner.gas = Some(gas),
+            #[cfg(feature = "optimism")]
+            DepositTransaction(inner) => inner.tx.gas = Some(gas),
         };
         self
     }
@@ -192,6 +225,8 @@ impl TypedTransaction {
                     (max_fee, None) => max_fee,
                 }
             }
+            #[cfg(feature = "optimism")]
+            DepositTransaction(inner) => inner.tx.gas_price,
         }
     }
 
@@ -204,6 +239,8 @@ impl TypedTransaction {
                 inner.max_fee_per_gas = Some(gas_price);
                 inner.max_priority_fee_per_gas = Some(gas_price);
             }
+            #[cfg(feature = "optimism")]
+            DepositTransaction(inner) => inner.tx.gas_price = Some(gas_price),
         };
         self
     }
@@ -213,6 +250,8 @@ impl TypedTransaction {
             Legacy(inner) => inner.chain_id,
             Eip2930(inner) => inner.tx.chain_id,
             Eip1559(inner) => inner.chain_id,
+            #[cfg(feature = "optimism")]
+            DepositTransaction(inner) => inner.tx.chain_id,
         }
     }
 
@@ -222,6 +261,8 @@ impl TypedTransaction {
             Legacy(inner) => inner.chain_id = Some(chain_id),
             Eip2930(inner) => inner.tx.chain_id = Some(chain_id),
             Eip1559(inner) => inner.chain_id = Some(chain_id),
+            #[cfg(feature = "optimism")]
+            DepositTransaction(inner) => inner.tx.chain_id = Some(chain_id),
         };
         self
     }
@@ -231,6 +272,8 @@ impl TypedTransaction {
             Legacy(inner) => inner.data.as_ref(),
             Eip2930(inner) => inner.tx.data.as_ref(),
             Eip1559(inner) => inner.data.as_ref(),
+            #[cfg(feature = "optimism")]
+            DepositTransaction(inner) => inner.tx.data.as_ref(),
         }
     }
 
@@ -239,6 +282,8 @@ impl TypedTransaction {
             Legacy(_) => None,
             Eip2930(inner) => Some(&inner.access_list),
             Eip1559(inner) => Some(&inner.access_list),
+            #[cfg(feature = "optimism")]
+            DepositTransaction(_) => None,
         }
     }
 
@@ -247,6 +292,8 @@ impl TypedTransaction {
             Legacy(_) => {}
             Eip2930(inner) => inner.access_list = access_list,
             Eip1559(inner) => inner.access_list = access_list,
+            #[cfg(feature = "optimism")]
+            DepositTransaction(_) => {}
         };
         self
     }
@@ -256,6 +303,8 @@ impl TypedTransaction {
             Legacy(inner) => inner.data = Some(data),
             Eip2930(inner) => inner.tx.data = Some(data),
             Eip1559(inner) => inner.data = Some(data),
+            #[cfg(feature = "optimism")]
+            DepositTransaction(inner) => inner.tx.data = Some(data),
         };
         self
     }
@@ -274,6 +323,11 @@ impl TypedTransaction {
                 encoded.extend_from_slice(&[0x2]);
                 encoded.extend_from_slice(inner.rlp_signed(signature).as_ref());
             }
+            #[cfg(feature = "optimism")]
+            DepositTransaction(inner) => {
+                encoded.extend_from_slice(&[0x7E]);
+                encoded.extend_from_slice(inner.rlp().as_ref());
+            }
         };
         encoded.into()
     }
@@ -290,6 +344,11 @@ impl TypedTransaction {
             }
             Eip1559(inner) => {
                 encoded.extend_from_slice(&[0x2]);
+                encoded.extend_from_slice(inner.rlp().as_ref());
+            }
+            #[cfg(feature = "optimism")]
+            DepositTransaction(inner) => {
+                encoded.extend_from_slice(&[0x7E]);
                 encoded.extend_from_slice(inner.rlp().as_ref());
             }
         };
@@ -343,6 +402,12 @@ impl TypedTransaction {
             let decoded_request = Eip1559TransactionRequest::decode_signed_rlp(&rest)?;
             return Ok((Self::Eip1559(decoded_request.0), decoded_request.1))
         }
+        #[cfg(feature = "optimism")]
+        if first == 0x7E {
+            // Optimism Deposited (0x7E)
+            let decoded_request = DepositTransaction::decode_signed_rlp(&rest)?;
+            return Ok((Self::DepositTransaction(decoded_request.0), decoded_request.1))
+        }
 
         Err(rlp::DecoderError::Custom("invalid tx type").into())
     }
@@ -352,9 +417,9 @@ impl TypedTransaction {
 impl Decodable for TypedTransaction {
     fn decode(rlp: &rlp::Rlp) -> Result<Self, rlp::DecoderError> {
         let tx_type: Option<U64> = match rlp.is_data() {
-            true => Ok(Some(rlp.data()?.into())),
-            false => Ok(None),
-        }?;
+            true => Some(rlp.data()?.into()),
+            false => None,
+        };
         let rest = rlp::Rlp::new(
             rlp.as_raw().get(1..).ok_or(rlp::DecoderError::Custom("no transaction payload"))?,
         );
@@ -367,6 +432,11 @@ impl Decodable for TypedTransaction {
             Some(x) if x == U64::from(2) => {
                 // EIP-1559 (0x02)
                 Ok(Self::Eip1559(Eip1559TransactionRequest::decode(&rest)?))
+            }
+            #[cfg(feature = "optimism")]
+            Some(x) if x == U64::from(0x7E) => {
+                // Optimism Deposited (0x7E)
+                Ok(Self::DepositTransaction(DepositTransaction::decode(&rest)?))
             }
             _ => {
                 // Legacy (0x00)
@@ -395,6 +465,13 @@ impl From<Eip1559TransactionRequest> for TypedTransaction {
     }
 }
 
+#[cfg(feature = "optimism")]
+impl From<DepositTransaction> for TypedTransaction {
+    fn from(src: DepositTransaction) -> TypedTransaction {
+        TypedTransaction::DepositTransaction(src)
+    }
+}
+
 impl From<&Transaction> for TypedTransaction {
     fn from(tx: &Transaction) -> TypedTransaction {
         match tx.transaction_type {
@@ -406,6 +483,12 @@ impl From<&Transaction> for TypedTransaction {
             // EIP-1559 (0x02)
             Some(x) if x == U64::from(2) => {
                 let request: Eip1559TransactionRequest = tx.into();
+                request.into()
+            }
+            #[cfg(feature = "optimism")]
+            // Optimism Deposited (0x7E)
+            Some(x) if x == U64::from(0x7E) => {
+                let request: DepositTransaction = tx.into();
                 request.into()
             }
             // Legacy (0x00)
@@ -436,6 +519,13 @@ impl TypedTransaction {
             _ => None,
         }
     }
+    #[cfg(feature = "optimism")]
+    pub fn as_optimism_deposited_ref(&self) -> Option<&DepositTransaction> {
+        match self {
+            DepositTransaction(tx) => Some(tx),
+            _ => None,
+        }
+    }
 
     pub fn as_legacy_mut(&mut self) -> Option<&mut TransactionRequest> {
         match self {
@@ -452,6 +542,13 @@ impl TypedTransaction {
     pub fn as_eip1559_mut(&mut self) -> Option<&mut Eip1559TransactionRequest> {
         match self {
             Eip1559(tx) => Some(tx),
+            _ => None,
+        }
+    }
+    #[cfg(feature = "optimism")]
+    pub fn as_optimism_deposited_mut(&mut self) -> Option<&mut DepositTransaction> {
+        match self {
+            DepositTransaction(tx) => Some(tx),
             _ => None,
         }
     }
@@ -506,6 +603,8 @@ impl TypedTransaction {
                 #[cfg_attr(docsrs, doc(cfg(feature = "celo")))]
                 gateway_fee: None,
             },
+            #[cfg(feature = "optimism")]
+            DepositTransaction(tx) => tx.tx,
         }
     }
 }
@@ -545,6 +644,8 @@ impl TypedTransaction {
                 },
                 access_list,
             },
+            #[cfg(feature = "optimism")]
+            DepositTransaction(tx) => Eip2930TransactionRequest { tx: tx.tx, access_list },
         }
     }
 }
@@ -557,11 +658,7 @@ impl From<TypedTransaction> for Eip2930TransactionRequest {
 
 #[cfg(test)]
 mod tests {
-    use hex::ToHex;
-    use rlp::Decodable;
-
     use super::*;
-    use crate::types::{Address, U256};
     use std::str::FromStr;
 
     #[test]
@@ -609,8 +706,9 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(feature = "legacy", ignore)]
     fn test_typed_tx() {
-        let tx: Eip1559TransactionRequest = serde_json::from_str(
+        let envelope: TypedTransaction = serde_json::from_str(
             r#"{
             "gas": "0x186a0",
             "maxFeePerGas": "0x77359400",
@@ -636,7 +734,7 @@ mod tests {
         )
         .unwrap();
 
-        let envelope = TypedTransaction::Eip1559(tx);
+        assert!(matches!(envelope, TypedTransaction::Eip1559(_)));
 
         let expected =
             H256::from_str("0x090b19818d9d087a49c3d2ecee4829ee4acea46089c1381ac5e588188627466d")
@@ -753,7 +851,7 @@ mod tests {
         // compare rlp - sighash should then be the same
         let tx_expected_rlp = "f90145052b85012a05f20085012a05f2148301b3cd8080b9012d608060405234801561001057600080fd5b5061010d806100206000396000f3fe6080604052348015600f57600080fd5b506004361060325760003560e01c8063cfae3217146037578063f8a8fd6d146066575b600080fd5b604080518082019091526003815262676d2160e81b60208201525b604051605d91906085565b60405180910390f35b6040805180820190915260048152636f6f662160e01b60208201526052565b600060208083528351808285015260005b8181101560b0578581018301518582016040015282016096565b8181111560c1576000604083870101525b50601f01601f191692909201604001939250505056fea2646970667358221220f89093a9819ba5d2a3384305511d0945ea94f36a8aa162ab62921b3841fe3afd64736f6c634300080c0033c0";
         let tx_real_rlp_vec = tx.rlp().to_vec();
-        let tx_real_rlp: String = tx_real_rlp_vec.encode_hex();
+        let tx_real_rlp: String = hex::encode(tx_real_rlp_vec);
         assert_eq!(tx_expected_rlp, tx_real_rlp);
 
         let r =

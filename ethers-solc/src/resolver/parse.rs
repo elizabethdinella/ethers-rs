@@ -1,8 +1,8 @@
 use crate::{utils, Solc};
 use semver::VersionReq;
 use solang_parser::pt::{
-    ContractPart, ContractTy, FunctionAttribute, FunctionDefinition, Import, Loc, SourceUnitPart,
-    Visibility,
+    ContractPart, ContractTy, FunctionAttribute, FunctionDefinition, Import, ImportPath, Loc,
+    SourceUnitPart, Visibility,
 };
 use std::{
     ops::Range,
@@ -65,15 +65,18 @@ impl SolData {
                                 Import::GlobalSymbol(s, i, l) => (s, vec![(i, None)], l),
                                 Import::Rename(s, i, l) => (s, i, l),
                             };
-                            let sol_import = SolImport::new(PathBuf::from(import.string))
-                                .set_aliases(
-                                    ids.into_iter()
-                                        .map(|(id, alias)| match alias {
-                                            Some(al) => SolImportAlias::Contract(al.name, id.name),
-                                            None => SolImportAlias::File(id.name),
-                                        })
-                                        .collect(),
-                                );
+                            let import = match import {
+                                ImportPath::Filename(s) => s.string.clone(),
+                                ImportPath::Path(p) => p.to_string(),
+                            };
+                            let sol_import = SolImport::new(PathBuf::from(import)).set_aliases(
+                                ids.into_iter()
+                                    .map(|(id, alias)| match alias {
+                                        Some(al) => SolImportAlias::Contract(al.name, id.name),
+                                        None => SolImportAlias::File(id.name),
+                                    })
+                                    .collect(),
+                            );
                             imports.push(SolDataUnit::from_loc(sol_import, loc));
                         }
                         SourceUnitPart::ContractDefinition(def) => {
@@ -265,9 +268,7 @@ fn capture_outer_and_inner<'a>(
 pub fn capture_imports(content: &str) -> Vec<SolDataUnit<SolImport>> {
     let mut imports = vec![];
     for cap in utils::RE_SOL_IMPORT.captures_iter(content) {
-        if let Some(name_match) =
-            vec!["p1", "p2", "p3", "p4"].iter().find_map(|name| cap.name(name))
-        {
+        if let Some(name_match) = ["p1", "p2", "p3", "p4"].iter().find_map(|name| cap.name(name)) {
             let statement_match = cap.get(0).unwrap();
             let mut aliases = vec![];
             for alias_cap in utils::RE_SOL_IMPORT_ALIAS.captures_iter(statement_match.as_str()) {

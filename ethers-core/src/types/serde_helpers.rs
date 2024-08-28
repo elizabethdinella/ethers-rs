@@ -2,13 +2,10 @@
 
 use crate::types::{BlockNumber, U256, U64};
 use serde::{Deserialize, Deserializer};
-use std::{
-    convert::{TryFrom, TryInto},
-    str::FromStr,
-};
+use std::str::FromStr;
 
 /// Helper type to parse both `u64` and `U256`
-#[derive(Copy, Clone, Deserialize)]
+#[derive(Debug, Copy, Clone, Deserialize)]
 #[serde(untagged)]
 pub enum Numeric {
     U256(U256),
@@ -43,7 +40,7 @@ impl FromStr for Numeric {
 #[serde(untagged)]
 pub enum StringifiedNumeric {
     String(String),
-    U256(U256),
+    U256(Numeric),
     Num(serde_json::Number),
 }
 
@@ -52,7 +49,7 @@ impl TryFrom<StringifiedNumeric> for U256 {
 
     fn try_from(value: StringifiedNumeric) -> Result<Self, Self::Error> {
         match value {
-            StringifiedNumeric::U256(n) => Ok(n),
+            StringifiedNumeric::U256(n) => Ok(n.into()),
             StringifiedNumeric::Num(n) => {
                 Ok(U256::from_dec_str(&n.to_string()).map_err(|err| err.to_string())?)
             }
@@ -76,8 +73,7 @@ impl TryFrom<StringifiedNumeric> for U64 {
         let value = U256::try_from(value)?;
         let mut be_bytes = [0u8; 32];
         value.to_big_endian(&mut be_bytes);
-        U64::try_from(&be_bytes[value.leading_zeros() as usize / 8..])
-            .map_err(|err| err.to_string())
+        Ok(U64::from(&be_bytes[value.leading_zeros() as usize / 8..]))
     }
 }
 
@@ -297,9 +293,9 @@ where
 
 #[cfg(test)]
 mod tests {
+    use super::*;
 
     #[test]
-    #[cfg(feature = "eip712")]
     fn test_deserialize_string_chain_id() {
         use crate::types::transaction::eip712::EIP712Domain;
 
@@ -314,5 +310,39 @@ mod tests {
 
         let domain: EIP712Domain = serde_json::from_value(val).unwrap();
         assert_eq!(domain.chain_id, Some(137u64.into()));
+    }
+
+    // <https://github.com/gakonst/ethers-rs/issues/2353>
+    #[test]
+    fn deserialize_stringified() {
+        #[derive(Debug, Deserialize, Eq, PartialEq)]
+        struct TestValues {
+            #[serde(deserialize_with = "deserialize_stringified_numeric")]
+            value_1: U256,
+            #[serde(deserialize_with = "deserialize_stringified_numeric")]
+            value_2: U256,
+            #[serde(deserialize_with = "deserialize_stringified_numeric")]
+            value_3: U256,
+            #[serde(deserialize_with = "deserialize_stringified_numeric")]
+            value_4: U256,
+        }
+
+        let data = r#"
+        {
+            "value_1": "750000000000000000",
+            "value_2": "21000000000000000",
+            "value_3": "0",
+            "value_4": "1"
+        }
+    "#;
+
+        let deserialized: TestValues = serde_json::from_str(data).unwrap();
+        let expected = TestValues {
+            value_1: U256::from(750_000_000_000_000_000u64),
+            value_2: U256::from(21_000_000_000_000_000u64),
+            value_3: U256::from(0u64),
+            value_4: U256::from(1u64),
+        };
+        assert_eq!(deserialized, expected);
     }
 }

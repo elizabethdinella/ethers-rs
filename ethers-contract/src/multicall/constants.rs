@@ -14,6 +14,7 @@ pub const MULTICALL_SUPPORTED_CHAIN_IDS: &[u64] = {
     use Chain::*;
     &[
         Mainnet as u64,                  // Mainnet
+        Holesky as u64,                  // Holesky
         Kovan as u64,                    // Kovan
         Rinkeby as u64,                  // Rinkeby
         Goerli as u64,                   // Görli
@@ -22,13 +23,19 @@ pub const MULTICALL_SUPPORTED_CHAIN_IDS: &[u64] = {
         Optimism as u64,                 // Optimism
         OptimismKovan as u64,            // Optimism Kovan
         OptimismGoerli as u64,           // Optimism Görli
+        OptimismSepolia as u64,          // Optimism Sepolia
+        Base as u64,                     // Base
+        BaseGoerli as u64,               // Base Görli
+        BaseSepolia as u64,              // Base Sepolia
+        BlastSepolia as u64,             // Blast Sepolia
         Arbitrum as u64,                 // Arbitrum
         ArbitrumNova as u64,             // Arbitrum Nova
         ArbitrumGoerli as u64,           // Arbitrum Görli
         ArbitrumTestnet as u64,          // Arbitrum Rinkeby
+        ArbitrumSepolia as u64,          // Arbitrum Sepolia
         Polygon as u64,                  // Polygon
         PolygonMumbai as u64,            // Polygon Mumbai
-        XDai as u64,                     // Gnosis Chain
+        Gnosis as u64,                   // Gnosis Chain
         Avalanche as u64,                // Avalanche
         AvalancheFuji as u64,            // Avalanche Fuji
         FantomTestnet as u64,            // Fantom Testnet
@@ -70,5 +77,6 @@ pub const MULTICALL_SUPPORTED_CHAIN_IDS: &[u64] = {
         321,                             // KCC
         106,                             // Velas
         40,                              // Telos
+        Mode as u64,                     // Mode Mainnet
     ]
 };

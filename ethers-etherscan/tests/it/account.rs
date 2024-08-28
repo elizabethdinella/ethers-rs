@@ -1,5 +1,5 @@
 use crate::*;
-use ethers_etherscan::account::{InternalTxQueryOption, TokenQueryOption};
+use ethers_etherscan::account::{InternalTxQueryOption, TokenQueryOption, TxListParams};
 use serial_test::serial;
 
 #[tokio::test]
@@ -95,7 +95,7 @@ async fn get_erc20_transfer_events_success() {
             )
             .await
             .unwrap();
-        let tx = txs.get(0).unwrap();
+        let tx = txs.first().unwrap();
         assert_eq!(tx.gas_used, 93657u64.into());
         assert_eq!(tx.nonce, 10u64.into());
         assert_eq!(tx.block_number, 2228258u64.into());
@@ -157,10 +157,27 @@ async fn get_mined_blocks_success() {
 
 #[tokio::test]
 #[serial]
+async fn get_beacon_withdrawal_transactions_success() {
+    run_with_client(Chain::Mainnet, |client| async move {
+        let txs = client
+            .get_beacon_withdrawal_transactions(
+                &"0xB9D7934878B5FB9610B3fE8A5e441e8fad7E293f".parse().unwrap(),
+                None,
+            )
+            .await;
+        txs.unwrap();
+    })
+    .await
+}
+#[tokio::test]
+#[serial]
 async fn get_avalanche_transactions() {
     run_with_client(Chain::Avalanche, |client| async move {
         let txs = client
-            .get_transactions(&"0x1549ea9b546ba9ffb306d78a1e1f304760cc4abf".parse().unwrap(), None)
+            .get_transactions(
+                &"0x1549ea9b546ba9ffb306d78a1e1f304760cc4abf".parse().unwrap(),
+                Some(TxListParams { end_block: 1000, offset: 10, ..Default::default() }),
+            )
             .await;
         txs.unwrap();
     })

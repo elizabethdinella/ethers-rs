@@ -1,6 +1,6 @@
 use crate::{
     types::{Address, Chain},
-    utils::{secret_key_to_address, unused_ports},
+    utils::{secret_key_to_address, unused_port},
 };
 use generic_array::GenericArray;
 use k256::{ecdsa::SigningKey, SecretKey as K256SecretKey};
@@ -16,7 +16,7 @@ const ANVIL_STARTUP_TIMEOUT_MILLIS: u64 = 10_000;
 
 /// An anvil CLI instance. Will close the instance when dropped.
 ///
-/// Construct this using [`Anvil`](crate::utils::Anvil)
+/// Construct this using [`Anvil`].
 pub struct AnvilInstance {
     pid: Child,
     private_keys: Vec<K256SecretKey>,
@@ -219,7 +219,7 @@ impl Anvil {
             Command::new("anvil")
         };
         cmd.stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::inherit());
-        let port = if let Some(port) = self.port { port } else { unused_ports::<1>()[0] };
+        let port = if let Some(port) = self.port { port } else { unused_port() };
         cmd.arg("-p").arg(port.to_string());
 
         if let Some(mnemonic) = self.mnemonic {
@@ -254,6 +254,7 @@ impl Anvil {
         let mut private_keys = Vec::new();
         let mut addresses = Vec::new();
         let mut is_private_key = false;
+        let mut chain_id = None;
         loop {
             if start + Duration::from_millis(self.timeout.unwrap_or(ANVIL_STARTUP_TIMEOUT_MILLIS)) <=
                 Instant::now()
@@ -272,16 +273,33 @@ impl Anvil {
             }
 
             if is_private_key && line.starts_with('(') {
-                let key_str = &line[6..line.len() - 1];
+                let key_str = line
+                    .split("0x")
+                    .last()
+                    .unwrap_or_else(|| panic!("could not parse private key: {}", line))
+                    .trim();
                 let key_hex = hex::decode(key_str).expect("could not parse as hex");
                 let key = K256SecretKey::from_bytes(&GenericArray::clone_from_slice(&key_hex))
                     .expect("did not get private key");
                 addresses.push(secret_key_to_address(&SigningKey::from(&key)));
                 private_keys.push(key);
             }
+
+            if let Some(start_chain_id) = line.find("Chain ID:") {
+                let rest = &line[start_chain_id + "Chain ID:".len()..];
+                if let Ok(chain) = rest.split_whitespace().next().unwrap_or("").parse::<u64>() {
+                    chain_id = Some(chain);
+                };
+            }
         }
 
-        AnvilInstance { pid: child, private_keys, addresses, port, chain_id: self.chain_id }
+        AnvilInstance {
+            pid: child,
+            private_keys,
+            addresses,
+            port,
+            chain_id: self.chain_id.or(chain_id),
+        }
     }
 }
 
@@ -292,5 +310,22 @@ mod tests {
     #[test]
     fn can_launch_anvil() {
         let _ = Anvil::new().spawn();
+    }
+
+    #[test]
+    fn can_launch_anvil_with_more_accounts() {
+        let _ = Anvil::new().arg("--accounts").arg("20").spawn();
+    }
+
+    #[test]
+    fn assert_chain_id() {
+        let anvil = Anvil::new().fork("https://rpc.ankr.com/eth").spawn();
+        assert_eq!(anvil.chain_id(), 1);
+    }
+
+    #[test]
+    fn assert_chain_id_without_rpc() {
+        let anvil = Anvil::new().spawn();
+        assert_eq!(anvil.chain_id(), 31337);
     }
 }

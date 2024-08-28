@@ -1,11 +1,10 @@
 //! [Ethereum Name Service](https://docs.ens.domains/) support
 //! Adapted from <https://github.com/hhatto/rust-ens/blob/master/src/lib.rs>
+
 use ethers_core::{
     types::{Address, NameOrAddress, Selector, TransactionRequest, H160, H256},
     utils::keccak256,
 };
-
-use std::convert::TryInto;
 
 /// ENS registry address (`0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e`)
 pub const ENS_ADDRESS: Address = H160([
@@ -81,7 +80,10 @@ pub fn namehash(name: &str) -> H256 {
         return H256::zero()
     }
 
-    // iterate in reverse
+    // Remove the variation selector U+FE0F
+    let name = name.replace('\u{fe0f}', "");
+
+    // Generate the node starting from the right
     name.rsplit('.')
         .fold([0u8; 32], |node, label| keccak256([node, keccak256(label.as_bytes())].concat()))
         .into()
@@ -109,9 +111,7 @@ mod tests {
     use super::*;
 
     fn assert_hex(hash: H256, val: &str) {
-        let v = if let Some(stripped) = val.strip_prefix("0x") { stripped } else { val };
-
-        assert_eq!(hash.0.to_vec(), hex::decode(v).unwrap());
+        assert_eq!(hash.0.to_vec(), hex::decode(val).unwrap());
     }
 
     #[test]
@@ -121,6 +121,7 @@ mod tests {
             ("foo.eth", "de9b09fd7c5f901e23a3f19fecc54828e9c848539801e86591bd9801b019f84f"),
             ("eth", "0x93cdeb708b7545dc668eb9280176169d1c33cfd8ed6f04690a0bcc88a93fc4ae"),
             ("alice.eth", "0x787192fc5378cc32aa956ddfdedbf26b24e8d78e40109add0eea2c1a012c3dec"),
+            ("ret↩️rn.eth", "0x3de5f4c02db61b221e7de7f1c40e29b6e2f07eb48d65bf7e304715cd9ed33b24"),
         ] {
             assert_hex(namehash(name), expected);
         }

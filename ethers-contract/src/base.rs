@@ -1,16 +1,20 @@
-use crate::ContractInstance;
 pub use ethers_core::abi::AbiError;
 use ethers_core::{
     abi::{Abi, Detokenize, Error, Event, Function, FunctionExt, RawLog, Token, Tokenize},
-    types::{Address, Bytes, Selector, H256},
+    types::{Bytes, Selector, H256},
 };
-use ethers_providers::Middleware;
 use std::{
-    borrow::Borrow,
     collections::{BTreeMap, HashMap},
     fmt::Debug,
     hash::Hash,
 };
+
+if_providers! {
+    use crate::ContractInstance;
+    use ethers_providers::Middleware;
+    use ethers_core::types::Address;
+    use std::borrow::Borrow;
+}
 
 /// A reduced form of `Contract` which just takes the `abi` and produces
 /// ABI encoded data for its functions.
@@ -157,6 +161,21 @@ impl BaseContract {
         decode_function_data(function, bytes, true)
     }
 
+    /// Decodes the provided ABI encoded input bytes
+    ///
+    /// Returns a [`Token`] vector, which lets you decode function arguments dynamically
+    /// without knowing the return type.
+    pub fn decode_input_raw<T: AsRef<[u8]>>(&self, bytes: T) -> Result<Vec<Token>, AbiError> {
+        let function = self.get_fn_from_input(bytes.as_ref())?;
+        decode_function_data_raw(function, bytes, true)
+    }
+
+    /// Decodes the provided ABI encoded input bytes
+    pub fn decode_input<D: Detokenize, T: AsRef<[u8]>>(&self, bytes: T) -> Result<D, AbiError> {
+        let function = self.get_fn_from_input(bytes.as_ref())?;
+        decode_function_data(function, bytes, true)
+    }
+
     /// Decode the provided ABI encoded bytes as the output of the provided
     /// function selector
     pub fn decode_output_with_selector<D: Detokenize, T: AsRef<[u8]>>(
@@ -181,6 +200,15 @@ impl BaseContract {
         decode_function_data_raw(function, bytes, false)
     }
 
+    fn get_fn_from_input(&self, input: &[u8]) -> Result<&Function, AbiError> {
+        let sig: [u8; 4] = input
+            .get(0..4)
+            .ok_or(AbiError::WrongSelector)?
+            .try_into()
+            .map_err(|_e| AbiError::WrongSelector)?;
+        self.get_from_signature(sig)
+    }
+
     fn get_from_signature(&self, signature: Selector) -> Result<&Function, AbiError> {
         Ok(self
             .methods
@@ -195,6 +223,7 @@ impl BaseContract {
     }
 
     /// Upgrades a `BaseContract` into a full fledged contract with an address and middleware.
+    #[cfg(feature = "providers")]
     pub fn into_contract<B, M>(self, address: Address, client: B) -> ContractInstance<B, M>
     where
         B: Borrow<M>,
@@ -308,6 +337,20 @@ mod tests {
         let (spender2, amount2): (Address, U256) = abi.decode("approve", encoded).unwrap();
         assert_eq!(spender, spender2);
         assert_eq!(amount, amount2);
+    }
+
+    #[test]
+    fn test_sig_from_input() {
+        let abi = BaseContract::from(parse_abi(&[
+            "function approve(address _spender, uint256 value) external view returns (bool, bool)"
+        ]).unwrap());
+        let spender = "7a250d5630b4cf539739df2c5dacb4c659f2488d".parse::<Address>().unwrap();
+        let amount = U256::MAX;
+        let encoded = abi.encode("approve", (spender, amount)).unwrap();
+
+        let decoded: (Address, U256) = abi.decode_input(&encoded).unwrap();
+        assert_eq!(spender, decoded.0);
+        assert_eq!(amount, decoded.1);
     }
 
     #[test]

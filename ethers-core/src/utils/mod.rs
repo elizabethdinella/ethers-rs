@@ -37,13 +37,13 @@ pub use rlp;
 pub use hex;
 
 use crate::types::{Address, Bytes, ParseI256Error, H256, I256, U256};
+use elliptic_curve::sec1::ToEncodedPoint;
 use ethabi::ethereum_types::FromDecStrErr;
-use k256::ecdsa::SigningKey;
-use std::{
-    collections::HashMap,
-    convert::{TryFrom, TryInto},
-    fmt,
+use k256::{
+    ecdsa::{SigningKey, VerifyingKey},
+    AffinePoint,
 };
+use std::{collections::HashMap, fmt};
 use thiserror::Error;
 
 /// I256 overflows for numbers wider than 77 units.
@@ -71,6 +71,10 @@ pub enum ConversionError {
     ParseOverflow,
     #[error(transparent)]
     ParseI256Error(#[from] ParseI256Error),
+    #[error("Invalid address checksum")]
+    InvalidAddressChecksum,
+    #[error(transparent)]
+    FromHexError(<Address as std::str::FromStr>::Err),
 }
 
 /// 1 Ether = 1e18 Wei == 0x0de0b6b3a7640000 Wei
@@ -137,8 +141,15 @@ construct_format_units_from! {
 /// in ether (instead of wei)
 ///
 /// Divides the input by 1e18
-pub fn format_ether<T: Into<U256>>(amount: T) -> U256 {
-    amount.into() / WEI_IN_ETHER
+/// ```
+/// use ethers_core::{types::U256, utils::format_ether};
+///
+/// let eth = format_ether(1395633240123456000_u128);
+/// assert_eq!(eth.parse::<f64>().unwrap(), 1.395633240123456);
+/// ```
+pub fn format_ether<T: Into<ParseUnits>>(amount: T) -> String {
+    // format_units returns Err only if units >= 77. Hense, we can safely unwrap here
+    format_units(amount, "ether").unwrap()
 }
 
 /// Divides the provided amount with 10^{units} provided.
@@ -379,17 +390,37 @@ pub fn get_create2_address_from_hash(
     Address::from(bytes)
 }
 
+/// Convert a raw, uncompressed public key to an address.
+///
+/// ### Warning
+///
+/// This method **does not** verify that the public key is valid. It is the
+/// caller's responsibility to pass a valid public key. Passing an invalid
+/// public key will produce an unspendable output.
+///
+/// ### Panics
+///
+/// When the input is not EXACTLY 64 bytes.
+pub fn raw_public_key_to_address<T: AsRef<[u8]>>(pubkey: T) -> Address {
+    let pubkey = pubkey.as_ref();
+    assert_eq!(pubkey.len(), 64, "raw public key must be 64 bytes");
+    let digest = keccak256(pubkey);
+    Address::from_slice(&digest[12..])
+}
+
+/// Converts an public key, in compressed or uncompressed form to an Ethereum
+/// address
+pub fn public_key_to_address(pubkey: &VerifyingKey) -> Address {
+    let affine: &AffinePoint = pubkey.as_ref();
+    let encoded = affine.to_encoded_point(false);
+    raw_public_key_to_address(&encoded.as_bytes()[1..])
+}
+
 /// Converts a K256 SigningKey to an Ethereum Address
 pub fn secret_key_to_address(secret_key: &SigningKey) -> Address {
     let public_key = secret_key.verifying_key();
-    let public_key = public_key.to_encoded_point(/* compress = */ false);
-    let public_key = public_key.as_bytes();
-    debug_assert_eq!(public_key[0], 0x04);
-    let hash = keccak256(&public_key[1..]);
 
-    let mut bytes = [0u8; 20];
-    bytes.copy_from_slice(&hash[12..]);
-    Address::from(bytes)
+    public_key_to_address(public_key)
 }
 
 /// Encodes an Ethereum address to its [EIP-55] checksum.
@@ -419,6 +450,22 @@ pub fn to_checksum(addr: &Address, chain_id: Option<u8>) -> String {
         });
         encoded
     })
+}
+
+/// Parses an [EIP-1191](https://eips.ethereum.org/EIPS/eip-1191) checksum address.
+///
+/// Returns `Ok(address)` if the checksummed address is valid, `Err()` otherwise.
+/// If `chain_id` is `None`, falls back to [EIP-55](https://eips.ethereum.org/EIPS/eip-55) address checksum method
+pub fn parse_checksummed(addr: &str, chain_id: Option<u8>) -> Result<Address, ConversionError> {
+    let addr = addr.strip_prefix("0x").unwrap_or(addr);
+    let address: Address = addr.parse().map_err(ConversionError::FromHexError)?;
+    let checksum_addr = to_checksum(&address, chain_id);
+
+    if checksum_addr.strip_prefix("0x").unwrap_or(&checksum_addr) == addr {
+        Ok(address)
+    } else {
+        Err(ConversionError::InvalidAddressChecksum)
+    }
 }
 
 /// Returns a bytes32 string representation of text. If the length of text exceeds 32 bytes,
@@ -564,24 +611,18 @@ fn base_fee_surged(base_fee_per_gas: U256) -> U256 {
     }
 }
 
-/// A bit of hack to find unused TCP ports.
+/// A bit of hack to find an unused TCP port.
 ///
 /// Does not guarantee that the given port is unused after the function exists, just that it was
 /// unused before the function started (i.e., it does not reserve a port).
 #[cfg(not(target_arch = "wasm32"))]
-pub(crate) fn unused_ports<const N: usize>() -> [u16; N] {
-    use std::net::{SocketAddr, TcpListener};
+pub(crate) fn unused_port() -> u16 {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0")
+        .expect("Failed to create TCP listener to find unused port");
 
-    std::array::from_fn(|_| {
-        let addr = SocketAddr::from(([127, 0, 0, 1], 0));
-        TcpListener::bind(addr).expect("Failed to create TCP listener to find unused port")
-    })
-    .map(|listener| {
-        listener
-            .local_addr()
-            .expect("Failed to read TCP listener local_addr to find unused port")
-            .port()
-    })
+    let local_addr =
+        listener.local_addr().expect("Failed to read TCP listener local_addr to find unused port");
+    local_addr.port()
 }
 
 #[cfg(test)]
@@ -593,6 +634,64 @@ mod tests {
     #[test]
     fn wei_in_ether() {
         assert_eq!(WEI_IN_ETHER.as_u64(), 1e18 as u64);
+    }
+
+    #[test]
+    fn test_format_ether_unsigned() {
+        let eth = format_ether(WEI_IN_ETHER);
+        assert_eq!(eth.parse::<f64>().unwrap() as u64, 1);
+
+        let eth = format_ether(1395633240123456000_u128);
+        assert_eq!(eth.parse::<f64>().unwrap(), 1.395633240123456);
+
+        let eth = format_ether(U256::from_dec_str("1395633240123456000").unwrap());
+        assert_eq!(eth.parse::<f64>().unwrap(), 1.395633240123456);
+
+        let eth = format_ether(U256::from_dec_str("1395633240123456789").unwrap());
+        assert_eq!(eth, "1.395633240123456789");
+
+        let eth = format_ether(U256::from_dec_str("1005633240123456789").unwrap());
+        assert_eq!(eth, "1.005633240123456789");
+
+        let eth = format_ether(u16::MAX);
+        assert_eq!(eth, "0.000000000000065535");
+
+        // Note: This covers usize on 32 bit systems.
+        let eth = format_ether(u32::MAX);
+        assert_eq!(eth, "0.000000004294967295");
+
+        // Note: This covers usize on 64 bit systems.
+        let eth = format_ether(u64::MAX);
+        assert_eq!(eth, "18.446744073709551615");
+    }
+
+    #[test]
+    fn test_format_ether_signed() {
+        let eth = format_ether(I256::from_dec_str("-1395633240123456000").unwrap());
+        assert_eq!(eth.parse::<f64>().unwrap(), -1.395633240123456);
+
+        let eth = format_ether(I256::from_dec_str("-1395633240123456789").unwrap());
+        assert_eq!(eth, "-1.395633240123456789");
+
+        let eth = format_ether(I256::from_dec_str("1005633240123456789").unwrap());
+        assert_eq!(eth, "1.005633240123456789");
+
+        let eth = format_ether(i8::MIN);
+        assert_eq!(eth, "-0.000000000000000128");
+
+        let eth = format_ether(i8::MAX);
+        assert_eq!(eth, "0.000000000000000127");
+
+        let eth = format_ether(i16::MIN);
+        assert_eq!(eth, "-0.000000000000032768");
+
+        // Note: This covers isize on 32 bit systems.
+        let eth = format_ether(i32::MIN);
+        assert_eq!(eth, "-0.000000002147483648");
+
+        // Note: This covers isize on 64 bit systems.
+        let eth = format_ether(i64::MIN);
+        assert_eq!(eth, "-9.223372036854775808");
     }
 
     #[test]
@@ -893,6 +992,53 @@ mod tests {
     }
 
     #[test]
+    fn checksummed_parse() {
+        let cases = vec![
+            // mainnet
+            // wrong case
+            (None, "0x27b1fdb04752bbc536007a920d24acb045561c26", true),
+            (None, "0x27B1fdb04752bbc536007a920d24acb045561c26", false),
+            // no checksummed
+            (None, "0x52908400098527886e0f7030069857d2e4169ee7", false),
+            // without 0x
+            (None, "0x42712D45473476b98452f434e72461577D686318", true),
+            (None, "42712D45473476b98452f434e72461577D686318", true),
+            // invalid address string
+            (None, "0x52908400098527886E0F7030069857D2E4169EE7", true),
+            (None, "0x52908400098527886E0F7030069857D2E4169EEX", false),
+            (None, "0x52908400098527886E0F7030069857D2E4169EE70", false),
+            // mistyped address
+            (None, "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed", true),
+            (None, "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAe1", false),
+            // rsk mainnet
+            // wrong case
+            (Some(30), "0x27b1FdB04752BBc536007A920D24ACB045561c26", true),
+            (Some(30), "0x27b1FdB04752BBc536007A920D24ACB045561C26", false),
+            // without 0x
+            (Some(30), "0x3599689E6292B81B2D85451025146515070129Bb", true),
+            (Some(30), "3599689E6292B81B2D85451025146515070129Bb", true),
+            // invalid address string
+            (Some(30), "0x42712D45473476B98452f434E72461577d686318", true),
+            (Some(30), "0x42712D45473476B98452f434E72461577d686318Z", false),
+            // mistyped address
+            (Some(30), "0x52908400098527886E0F7030069857D2E4169ee7", true),
+            (Some(30), "0x52908400098527886E0F7030069857D2E4169ee9", false),
+        ]; // mainnet
+
+        for (chain_id, addr, expected) in cases {
+            let result = parse_checksummed(addr, chain_id);
+            assert_eq!(
+                result.is_ok(),
+                expected,
+                "chain_id: {:?} addr: {:?} error: {:?}",
+                chain_id,
+                addr,
+                result.err()
+            );
+        }
+    }
+
+    #[test]
     fn contract_address() {
         // http://ethereum.stackexchange.com/questions/760/how-is-the-address-of-an-ethereum-contract-computed
         let from = "6ac7ea33f8831ea9dcc53393aaa88b25a785dbf0".parse::<Address>().unwrap();
@@ -1066,7 +1212,6 @@ mod tests {
             ("10", U256::from(10)),
             ("\"10\"", U256::from(10)),
             // max u256, in both num and str form
-            ("115792089237316195423570985008687907853269984665640564039457584007913129639935", U256::from_dec_str("115792089237316195423570985008687907853269984665640564039457584007913129639935").unwrap()),
             ("\"115792089237316195423570985008687907853269984665640564039457584007913129639935\"", U256::from_dec_str("115792089237316195423570985008687907853269984665640564039457584007913129639935").unwrap())
         ];
 
@@ -1074,9 +1219,44 @@ mod tests {
         struct TestUint(#[serde(deserialize_with = "deserialize_stringified_numeric")] U256);
 
         for (string, expected) in cases {
-            println!("testing {}", string);
-            let test: TestUint = serde_json::from_str(string).unwrap();
-            assert_eq!(test.0, expected);
+            let test: TestUint = serde_json::from_str(string)
+                .unwrap_or_else(|err| panic!("failed to deserialize {string}: {err}"));
+            assert_eq!(test.0, expected, "expected to deserialize {}", string);
         }
+    }
+
+    // Only tests for correctness, no edge cases. Uses examples from https://docs.ethers.org/v5/api/utils/address/#utils-computeAddress
+    #[test]
+    fn test_public_key_to_address() {
+        let addr = "0Ac1dF02185025F65202660F8167210A80dD5086".parse::<Address>().unwrap();
+
+        // Compressed
+        let pubkey = VerifyingKey::from_sec1_bytes(
+            &hex::decode("0376698beebe8ee5c74d8cc50ab84ac301ee8f10af6f28d0ffd6adf4d6d3b9b762")
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(public_key_to_address(&pubkey), addr);
+
+        // Uncompressed
+        let pubkey= VerifyingKey::from_sec1_bytes(&hex::decode("0476698beebe8ee5c74d8cc50ab84ac301ee8f10af6f28d0ffd6adf4d6d3b9b762d46ca56d3dad2ce13213a6f42278dabbb53259f2d92681ea6a0b98197a719be3").unwrap()).unwrap();
+        assert_eq!(public_key_to_address(&pubkey), addr);
+    }
+
+    #[test]
+    fn test_raw_public_key_to_address() {
+        let addr = "0Ac1dF02185025F65202660F8167210A80dD5086".parse::<Address>().unwrap();
+
+        let pubkey_bytes = hex::decode("76698beebe8ee5c74d8cc50ab84ac301ee8f10af6f28d0ffd6adf4d6d3b9b762d46ca56d3dad2ce13213a6f42278dabbb53259f2d92681ea6a0b98197a719be3").unwrap();
+
+        assert_eq!(raw_public_key_to_address(pubkey_bytes), addr);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_raw_public_key_to_address_panics() {
+        let fake_pkb = vec![];
+
+        raw_public_key_to_address(fake_pkb);
     }
 }

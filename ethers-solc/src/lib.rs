@@ -1,6 +1,6 @@
 #![doc = include_str!("../README.md")]
 #![deny(rustdoc::broken_intra_doc_links)]
-#![cfg_attr(docsrs, feature(doc_cfg))]
+#![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg))]
 
 pub mod artifacts;
 pub mod sourcemap;
@@ -474,11 +474,18 @@ impl<T: ArtifactOutput> Project<T> {
             }
             tracing::trace!("removed cache file \"{}\"", self.cache_path().display());
         }
-        if self.paths.artifacts.exists() {
+        if self.artifacts_path().exists() {
             std::fs::remove_dir_all(self.artifacts_path())
                 .map_err(|err| SolcIoError::new(err, self.artifacts_path().clone()))?;
             tracing::trace!("removed artifacts dir \"{}\"", self.artifacts_path().display());
         }
+
+        if self.build_info_path().exists() {
+            std::fs::remove_dir_all(self.build_info_path())
+                .map_err(|err| SolcIoError::new(err, self.build_info_path().clone()))?;
+            tracing::trace!("removed build-info dir \"{}\"", self.build_info_path().display());
+        }
+
         Ok(())
     }
 
@@ -966,29 +973,24 @@ impl<T: ArtifactOutput> ArtifactOutput for Project<T> {
 #[cfg(test)]
 #[cfg(all(feature = "svm-solc", not(target_arch = "wasm32")))]
 mod tests {
+    use super::*;
     use crate::remappings::Remapping;
 
     #[test]
     fn test_build_all_versions() {
-        use super::*;
-
         let paths = ProjectPathsConfig::builder()
             .root("./test-data/test-contract-versions")
             .sources("./test-data/test-contract-versions")
             .build()
             .unwrap();
         let project = Project::builder().paths(paths).no_artifacts().ephemeral().build().unwrap();
-        let compiled = project.compile().unwrap();
-        assert!(!compiled.has_compiler_errors());
-        let contracts = compiled.output().contracts;
+        let contracts = project.compile().unwrap().succeeded().output().contracts;
         // Contracts A to F
         assert_eq!(contracts.contracts().count(), 5);
     }
 
     #[test]
     fn test_build_many_libs() {
-        use super::*;
-
         let root = utils::canonicalize("./test-data/test-contract-libs").unwrap();
 
         let paths = ProjectPathsConfig::builder()
@@ -1010,16 +1012,12 @@ mod tests {
             .no_artifacts()
             .build()
             .unwrap();
-        let compiled = project.compile().unwrap();
-        assert!(!compiled.has_compiler_errors());
-        let contracts = compiled.output().contracts;
+        let contracts = project.compile().unwrap().succeeded().output().contracts;
         assert_eq!(contracts.contracts().count(), 3);
     }
 
     #[test]
     fn test_build_remappings() {
-        use super::*;
-
         let root = utils::canonicalize("./test-data/test-contract-remappings").unwrap();
         let paths = ProjectPathsConfig::builder()
             .root(&root)
@@ -1029,9 +1027,7 @@ mod tests {
             .build()
             .unwrap();
         let project = Project::builder().no_artifacts().paths(paths).ephemeral().build().unwrap();
-        let compiled = project.compile().unwrap();
-        assert!(!compiled.has_compiler_errors());
-        let contracts = compiled.output().contracts;
+        let contracts = project.compile().unwrap().succeeded().output().contracts;
         assert_eq!(contracts.contracts().count(), 2);
     }
 }

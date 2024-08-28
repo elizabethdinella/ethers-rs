@@ -1,16 +1,23 @@
 //! Test cases to validate the `abigen!` macro
 
-use ethers_contract::{abigen, ContractError, EthCall, EthError, EthEvent};
+use ethers_contract::{abigen, EthEvent};
 use ethers_core::{
-    abi::{AbiDecode, AbiEncode, Address, Tokenizable},
-    types::{transaction::eip2718::TypedTransaction, Bytes, Eip1559TransactionRequest, U256},
-    utils::Anvil,
+    abi::{AbiDecode, AbiEncode, Tokenizable},
+    types::{Address, Bytes, U256},
 };
+use std::{fmt::Debug, hash::Hash, str::FromStr};
+
+#[cfg(feature = "providers")]
+use ethers_contract::{ContractError, EthCall, EthError};
+#[cfg(feature = "providers")]
+use ethers_core::utils::Anvil;
+#[cfg(feature = "providers")]
 use ethers_providers::{MockProvider, Provider};
-use ethers_solc::Solc;
-use std::{fmt::Debug, hash::Hash, sync::Arc};
+#[cfg(feature = "providers")]
+use std::sync::Arc;
 
 const fn assert_codec<T: AbiDecode + AbiEncode>() {}
+#[cfg(feature = "providers")]
 const fn assert_tokenizeable<T: Tokenizable>() {}
 const fn assert_call<T: AbiEncode + AbiDecode + Default + Tokenizable>() {}
 const fn assert_event<T: EthEvent>() {}
@@ -147,6 +154,7 @@ fn can_generate_internal_structs_2() {
 }
 
 #[test]
+#[cfg(feature = "providers")]
 fn can_generate_internal_structs_multiple() {
     // NOTE: nesting here is necessary due to how tests are structured...
     use contract::*;
@@ -220,6 +228,7 @@ fn can_generate_return_struct() {
 }
 
 #[test]
+#[cfg(feature = "providers")]
 fn can_generate_human_readable_with_structs() {
     abigen!(
         SimpleContract,
@@ -267,6 +276,7 @@ fn can_generate_human_readable_with_structs() {
 }
 
 #[test]
+#[cfg(feature = "providers")]
 fn can_handle_overloaded_functions() {
     abigen!(
         SimpleContract,
@@ -353,62 +363,6 @@ fn can_handle_even_more_overloaded_functions() {
     let _contract_call = ConsoleLogCalls::Log2(call);
 }
 
-#[tokio::test]
-async fn can_handle_underscore_functions() {
-    abigen!(
-        SimpleStorage,
-        r#"[
-            _hashPuzzle() (uint256)
-        ]"#;
-
-        SimpleStorage2,
-        "ethers-contract/tests/solidity-contracts/simplestorage_abi.json",
-    );
-
-    // launch the network & connect to it
-    let anvil = Anvil::new().spawn();
-    let from = anvil.addresses()[0];
-    let provider = Provider::try_from(anvil.endpoint())
-        .unwrap()
-        .with_sender(from)
-        .interval(std::time::Duration::from_millis(10));
-    let client = Arc::new(provider);
-
-    let contract = "SimpleStorage";
-    let path = "./tests/solidity-contracts/SimpleStorage.sol";
-    let compiled = Solc::default().compile_source(path).unwrap();
-    let compiled = compiled.get(path, contract).unwrap();
-    let factory = ethers_contract::ContractFactory::new(
-        compiled.abi.unwrap().clone(),
-        compiled.bytecode().unwrap().clone(),
-        client.clone(),
-    );
-    let addr = factory.deploy("hi".to_string()).unwrap().legacy().send().await.unwrap().address();
-
-    // connect to the contract
-    let contract = SimpleStorage::new(addr, client.clone());
-    let contract2 = SimpleStorage2::new(addr, client.clone());
-
-    let res = contract.hash_puzzle().call().await.unwrap();
-    let res2 = contract2.hash_puzzle().call().await.unwrap();
-    let res3 = contract.method::<_, U256>("_hashPuzzle", ()).unwrap().call().await.unwrap();
-    let res4 = contract2.method::<_, U256>("_hashPuzzle", ()).unwrap().call().await.unwrap();
-
-    // Manual call construction
-    use ethers_providers::Middleware;
-    // TODO: How do we handle underscores for calls here?
-    let data = simple_storage::HashPuzzleCall.encode();
-    let tx = Eip1559TransactionRequest::new().data(data).to(addr);
-    let tx = TypedTransaction::Eip1559(tx);
-    let res5 = client.call(&tx, None).await.unwrap();
-    let res5 = U256::from(res5.as_ref());
-    assert_eq!(res, 100.into());
-    assert_eq!(res, res2);
-    assert_eq!(res, res3);
-    assert_eq!(res, res4);
-    assert_eq!(res, res5);
-}
-
 #[test]
 fn can_handle_unique_underscore_functions() {
     abigen!(
@@ -438,6 +392,7 @@ fn can_handle_unique_underscore_functions() {
 }
 
 #[test]
+#[cfg(feature = "providers")]
 fn can_handle_underscore_numeric() {
     abigen!(
         Test,
@@ -481,6 +436,7 @@ fn can_abican_generate_console_sol() {
 }
 
 #[test]
+#[cfg(feature = "providers")]
 fn can_generate_nested_types() {
     abigen!(
         Test,
@@ -508,6 +464,7 @@ fn can_generate_nested_types() {
 }
 
 #[test]
+#[cfg(feature = "providers")]
 fn can_handle_different_calls() {
     abigen!(
         Test,
@@ -525,6 +482,7 @@ fn can_handle_different_calls() {
 }
 
 #[test]
+#[cfg(feature = "providers")]
 fn can_handle_case_sensitive_calls() {
     abigen!(
         StakedOHM,
@@ -542,6 +500,7 @@ fn can_handle_case_sensitive_calls() {
 }
 
 #[tokio::test]
+#[cfg(feature = "providers")]
 async fn can_deploy_greeter() {
     abigen!(Greeter, "ethers-contract/tests/solidity-contracts/greeter.json",);
     let anvil = Anvil::new().spawn();
@@ -560,8 +519,10 @@ async fn can_deploy_greeter() {
 }
 
 #[tokio::test]
+#[cfg(feature = "providers")]
 async fn can_abiencoderv2_output() {
-    abigen!(AbiEncoderv2Test, "ethers-contract/tests/solidity-contracts/abiencoderv2test_abi.json",);
+    abigen!(AbiEncoderv2Test, "ethers-contract/tests/solidity-contracts/Abiencoderv2Test.json");
+
     let anvil = Anvil::new().spawn();
     let from = anvil.addresses()[0];
     let provider = Provider::try_from(anvil.endpoint())
@@ -570,20 +531,9 @@ async fn can_abiencoderv2_output() {
         .interval(std::time::Duration::from_millis(10));
     let client = Arc::new(provider);
 
-    let contract = "AbiencoderV2Test";
-    let path = "./tests/solidity-contracts/Abiencoderv2Test.sol";
-    let compiled = Solc::default().compile_source(path).unwrap();
-    let compiled = compiled.get(path, contract).unwrap();
-    let factory = ethers_contract::ContractFactory::new(
-        compiled.abi.unwrap().clone(),
-        compiled.bytecode().unwrap().clone(),
-        client.clone(),
-    );
-    let addr = factory.deploy(()).unwrap().legacy().send().await.unwrap().address();
+    let contract = AbiEncoderv2Test::deploy(client, ()).unwrap().legacy().send().await.unwrap();
 
-    let contract = AbiEncoderv2Test::new(addr, client.clone());
     let person = Person { name: "Alice".to_string(), age: 20u64.into() };
-
     let res = contract.default_person().call().await.unwrap();
     assert_eq!(res, person);
 }
@@ -633,6 +583,7 @@ fn can_handle_overloaded_events() {
 
 #[tokio::test]
 #[cfg(not(feature = "celo"))]
+#[cfg(feature = "providers")]
 async fn can_send_struct_param() {
     abigen!(StructContract, "./tests/solidity-contracts/StructContract.json");
 
@@ -657,6 +608,7 @@ async fn can_send_struct_param() {
 }
 
 #[test]
+#[cfg(feature = "providers")]
 fn can_generate_seaport_1_0() {
     abigen!(Seaport, "./tests/solidity-contracts/seaport_1_0.json");
 
@@ -667,7 +619,7 @@ fn can_generate_seaport_1_0() {
     assert_eq!(hex::encode(FulfillAdvancedOrderCall::selector()), "e7acab24");
 
     assert_codec::<SeaportErrors>();
-    let err = SeaportErrors::BadContractSignature(BadContractSignature::default());
+    let err = SeaportErrors::BadContractSignature(BadContractSignature);
 
     let encoded = err.clone().encode();
     assert_eq!(err, SeaportErrors::decode(encoded.clone()).unwrap());
@@ -794,13 +746,13 @@ fn can_generate_large_tuple_types() {
 fn can_generate_large_tuple_array() {
     abigen!(LargeArray, "./tests/solidity-contracts/large-array.json");
 
+    #[allow(unknown_lints, non_local_definitions)]
     impl Default for CallWithLongArrayCall {
         fn default() -> Self {
             Self { long_array: [0; 128] }
         }
     }
 
-    let _call = CallWithLongArrayCall::default();
     assert_call::<CallWithLongArrayCall>();
 }
 
@@ -833,6 +785,7 @@ fn can_handle_overloaded_function_with_array() {
 }
 
 #[test]
+#[cfg(feature = "providers")]
 #[allow(clippy::disallowed_names)]
 fn convert_uses_correct_abi() {
     abigen!(
@@ -867,4 +820,75 @@ fn can_generate_hardhat_console() {
 
     fn exists<T>() {}
     exists::<HardhatConsoleCalls>();
+}
+
+#[test]
+fn abigen_overloaded_methods() {
+    abigen!(
+        OverloadedFuncs,
+        r"[
+        function myfunc(address,uint256) external returns (bool)
+        function myfunc(address,address) external returns (bool)
+        function myfunc(address,address[]) external returns (bool)
+        function myfunc(address[2],address,address[]) external returns (bool)
+        ]",
+        methods {
+            myfunc(address,uint256) as myfunc1;
+            myfunc(address,address) as myfunc2;
+            myfunc(address,address[]) as myfunc3;
+            myfunc(address[2],address,address[]) as myfunc4;
+        },
+    );
+
+    let address = Address::random();
+    let f1 = Myfunc1Call(address, U256::from(10));
+    let _ = Myfunc2Call(address, address);
+    let _ = Myfunc3Call(address, vec![address]);
+    let f4 = Myfunc4Call([address, address], address, vec![address, address, address, address]);
+    assert_eq!(f1.1, U256::from(10));
+    assert_eq!(f4.0, [address, address]);
+    assert_eq!(f4.1, address);
+}
+
+#[test]
+fn abigen_overloaded_methods2() {
+    abigen!(OverloadedFuncs, "./tests/solidity-contracts/OverloadedFuncs.json",
+        methods {
+            execute(bytes, bytes[]) as execute_base;
+            execute(bytes, bytes[], uint256) as execute_uin256;
+            execute(bytes, bytes[3], uint256, bytes[]) as execute_fixed_arr;
+        },
+    );
+
+    let b1 = Bytes::from_str("0xabcd").unwrap();
+    let b2 = Bytes::from_str("0x12").unwrap();
+
+    let e1 = ExecuteBaseCall(b1.clone(), vec![b1.clone(), b2.clone()]);
+    let e2 = ExecuteUin256Call(b1.clone(), vec![b1.clone(), b2.clone()], U256::from(123));
+    let e3 = ExecuteFixedArrCall(
+        b1.clone(),
+        [b1.clone(), b2.clone(), b1.clone()],
+        U256::from(50),
+        vec![b1.clone(), b2.clone()],
+    );
+
+    let e1_encoded: Bytes = e1.encode().into();
+
+    assert_eq!(e2.0, b1);
+    assert_eq!(e3.0, b1);
+    assert_eq!(e3.3, vec![b1, b2]);
+    assert_eq!(e1_encoded.to_string(), "0x24856bc3000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000002abcd0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000002abcd00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000011200000000000000000000000000000000000000000000000000000000000000");
+}
+
+// https://github.com/foundry-rs/foundry/issues/7181
+#[test]
+fn abigen_default() {
+    // https://github.com/Layr-Labs/eigenlayer-middleware/blob/a79742bda7f967ce066df39b26f456afb61d6c28/test/utils/ProofParsing.sol#L132
+    abigen!(
+        ProofParsing,
+        r#"[
+            function getValidatorProof() public returns(bytes32[46] memory)
+        ]"#
+    );
+    // GetValidatorProofReturn cannot be Default
 }

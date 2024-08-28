@@ -1,11 +1,7 @@
 use super::{U128, U256, U512, U64};
 use serde::{Deserialize, Serialize, Serializer};
-use std::{
-    convert::{TryFrom, TryInto},
-    fmt,
-    time::Duration,
-};
-use strum::{AsRefStr, EnumCount, EnumIter, EnumString, EnumVariantNames};
+use std::{fmt, time::Duration};
+use strum::{AsRefStr, EnumCount, EnumIter, EnumString, VariantNames};
 
 // compatibility re-export
 #[doc(hidden)]
@@ -42,7 +38,7 @@ pub type ParseChainError = TryFromPrimitiveError<Chain>;
     Ord,
     Hash,
     AsRefStr,         // AsRef<str>, fmt::Display and serde::Serialize
-    EnumVariantNames, // Chain::VARIANTS
+    VariantNames,     // Chain::VARIANTS
     EnumString,       // FromStr, TryFrom<&str>
     EnumIter,         // Chain::iter
     EnumCount,        // Chain::COUNT
@@ -61,15 +57,18 @@ pub enum Chain {
     Rinkeby = 4,
     Goerli = 5,
     Kovan = 42,
+    Holesky = 17000,
     Sepolia = 11155111,
 
     Optimism = 10,
     OptimismKovan = 69,
     OptimismGoerli = 420,
+    OptimismSepolia = 11155420,
 
     Arbitrum = 42161,
     ArbitrumTestnet = 421611,
     ArbitrumGoerli = 421613,
+    ArbitrumSepolia = 421614,
     ArbitrumNova = 42170,
 
     Cronos = 25,
@@ -87,16 +86,30 @@ pub enum Chain {
     Poa = 99,
     Sokol = 77,
 
+    #[serde(alias = "scroll_sepolia", alias = "scroll_sepolia_testnet")]
+    ScrollSepolia = 534351,
+    Scroll = 534352,
     ScrollAlphaTestnet = 534353,
+
+    Metis = 1088,
 
     #[strum(to_string = "xdai", serialize = "gnosis", serialize = "gnosis-chain")]
     #[serde(alias = "xdai", alias = "gnosis", alias = "gnosis_chain")]
-    XDai = 100,
+    Gnosis = 100,
 
     Polygon = 137,
     #[strum(to_string = "mumbai", serialize = "polygon-mumbai")]
     #[serde(alias = "mumbai")]
     PolygonMumbai = 80001,
+    #[strum(to_string = "amoy", serialize = "polygon-amoy")]
+    #[serde(alias = "amoy")]
+    PolygonAmoy = 80002,
+    #[strum(serialize = "polygon-zkevm", serialize = "zkevm")]
+    #[serde(alias = "zkevm", alias = "polygon_zkevm")]
+    PolygonZkEvm = 1101,
+    #[strum(serialize = "polygon-zkevm-testnet", serialize = "zkevm-testnet")]
+    #[serde(alias = "zkevm_testnet", alias = "polygon_zkevm_testnet")]
+    PolygonZkEvmTestnet = 1442,
 
     Fantom = 250,
     FantomTestnet = 4002,
@@ -124,7 +137,7 @@ pub enum Chain {
     EmeraldTestnet = 42261,
 
     FilecoinMainnet = 314,
-    FilecoinHyperspaceTestnet = 3141,
+    FilecoinCalibrationTestnet = 314159,
 
     Avalanche = 43114,
     #[strum(to_string = "fuji", serialize = "avalanche-fuji")]
@@ -143,11 +156,48 @@ pub enum Chain {
 
     Boba = 288,
 
+    #[strum(to_string = "base")]
+    #[serde(alias = "base")]
+    Base = 8453,
+    #[strum(to_string = "base-goerli")]
+    #[serde(alias = "base_goerli")]
     BaseGoerli = 84531,
+    #[strum(to_string = "base-sepolia")]
+    #[serde(alias = "base_sepolia")]
+    BaseSepolia = 84532,
+
+    Blast = 81457,
+    BlastSepolia = 168587773,
+
+    Linea = 59144,
+    LineaTestnet = 59140,
 
     #[strum(to_string = "zksync")]
     #[serde(alias = "zksync")]
     ZkSync = 324,
+    #[strum(to_string = "zksync-testnet")]
+    #[serde(alias = "zksync_testnet")]
+    ZkSyncTestnet = 280,
+
+    #[strum(to_string = "mantle")]
+    #[serde(alias = "mantle")]
+    Mantle = 5000,
+    #[strum(to_string = "mantle-testnet")]
+    #[serde(alias = "mantle_testnet")]
+    MantleTestnet = 5001,
+
+    Viction = 88,
+
+    Zora = 7777777,
+    ZoraGoerli = 999,
+    ZoraSepolia = 999999999,
+
+    Mode = 34443,
+    ModeSepolia = 919,
+
+    Elastos = 20,
+
+    Degen = 666666666,
 }
 
 // === impl Chain ===
@@ -255,15 +305,19 @@ impl Chain {
     ///     Chain::Mainnet.average_blocktime_hint(),
     ///     Some(Duration::from_millis(12_000)),
     /// );
-    /// assert_eq!(Chain::Optimism.average_blocktime_hint(), None);
+    /// assert_eq!(
+    ///     Chain::Optimism.average_blocktime_hint(),
+    ///     Some(Duration::from_millis(2_000)),
+    /// );
     /// ```
     pub const fn average_blocktime_hint(&self) -> Option<Duration> {
         use Chain::*;
 
         let ms = match self {
             Mainnet => 12_000,
-            Arbitrum | ArbitrumTestnet | ArbitrumGoerli | ArbitrumNova => 1_300,
-            Polygon | PolygonMumbai => 2_100,
+            Arbitrum | ArbitrumTestnet | ArbitrumGoerli | ArbitrumSepolia | ArbitrumNova => 1_300,
+            Optimism | OptimismGoerli | OptimismSepolia => 2_000,
+            Polygon | PolygonMumbai | PolygonAmoy => 2_100,
             Moonbeam | Moonriver => 12_500,
             BinanceSmartChain | BinanceSmartChainTestnet => 3_000,
             Avalanche | AvalancheFuji => 2_000,
@@ -275,12 +329,19 @@ impl Chain {
             Emerald => 6_000,
             Dev | AnvilHardhat => 200,
             Celo | CeloAlfajores | CeloBaklava => 5_000,
-            FilecoinHyperspaceTestnet | FilecoinMainnet => 30_000,
-            ScrollAlphaTestnet => 3_000,
+            FilecoinCalibrationTestnet | FilecoinMainnet => 30_000,
+            Scroll | ScrollSepolia | ScrollAlphaTestnet => 3_000,
+            Gnosis | Chiado => 5_000,
+            Viction => 2_000,
+            Mode | ModeSepolia => 2_000,
+            Elastos => 5_000,
+            Degen => 622,
             // Explicitly exhaustive. See NB above.
-            Morden | Ropsten | Rinkeby | Goerli | Kovan | XDai | Chiado | Sepolia | Moonbase |
-            MoonbeamDev | Optimism | OptimismGoerli | OptimismKovan | Poa | Sokol | Rsk |
-            EmeraldTestnet | Boba | BaseGoerli | ZkSync => return None,
+            Morden | Ropsten | Rinkeby | Goerli | Kovan | Sepolia | Holesky | Moonbase |
+            MoonbeamDev | OptimismKovan | Poa | Sokol | Rsk | EmeraldTestnet | Boba | Base |
+            BaseGoerli | BaseSepolia | Blast | BlastSepolia | ZkSync | ZkSyncTestnet |
+            PolygonZkEvm | PolygonZkEvmTestnet | Metis | Linea | LineaTestnet | Mantle |
+            MantleTestnet | Zora | ZoraGoerli | ZoraSepolia => return None,
         };
 
         Some(Duration::from_millis(ms))
@@ -301,17 +362,12 @@ impl Chain {
 
         match self {
             // Known legacy chains / non EIP-1559 compliant
-            Optimism |
-            OptimismGoerli |
             OptimismKovan |
             Fantom |
             FantomTestnet |
             BinanceSmartChain |
             BinanceSmartChainTestnet |
-            Arbitrum |
             ArbitrumTestnet |
-            ArbitrumGoerli |
-            ArbitrumNova |
             Rsk |
             Oasis |
             Emerald |
@@ -321,24 +377,69 @@ impl Chain {
             CeloBaklava |
             Boba |
             ZkSync |
-            BaseGoerli => true,
+            ZkSyncTestnet |
+            Mantle |
+            MantleTestnet |
+            PolygonZkEvm |
+            PolygonZkEvmTestnet |
+            Metis |
+            Viction |
+            Scroll |
+            ScrollSepolia |
+            Elastos => true,
 
             // Known EIP-1559 chains
             Mainnet |
             Goerli |
             Sepolia |
+            Holesky |
+            Base |
+            BaseGoerli |
+            BaseSepolia |
+            Blast |
+            BlastSepolia |
+            Optimism |
+            OptimismGoerli |
+            OptimismSepolia |
             Polygon |
             PolygonMumbai |
+            PolygonAmoy |
             Avalanche |
             AvalancheFuji |
+            Arbitrum |
+            ArbitrumGoerli |
+            ArbitrumSepolia |
+            ArbitrumNova |
             FilecoinMainnet |
-            FilecoinHyperspaceTestnet => false,
+            Linea |
+            LineaTestnet |
+            FilecoinCalibrationTestnet |
+            Gnosis |
+            Chiado |
+            Mode |
+            ModeSepolia |
+            Zora |
+            ZoraGoerli |
+            ZoraSepolia |
+            Degen => false,
 
             // Unknown / not applicable, default to false for backwards compatibility
             Dev | AnvilHardhat | Morden | Ropsten | Rinkeby | Cronos | CronosTestnet | Kovan |
-            Sokol | Poa | XDai | Moonbeam | MoonbeamDev | Moonriver | Moonbase | Evmos |
-            EvmosTestnet | Chiado | Aurora | AuroraTestnet | Canto | CantoTestnet |
-            ScrollAlphaTestnet => false,
+            Sokol | Poa | Moonbeam | MoonbeamDev | Moonriver | Moonbase | Evmos |
+            EvmosTestnet | Aurora | AuroraTestnet | Canto | CantoTestnet | ScrollAlphaTestnet => {
+                false
+            }
+        }
+    }
+
+    /// Returns whether the chain supports the `PUSH0` opcode or not.
+    ///
+    /// For more information, see EIP-3855:
+    /// `<https://eips.ethereum.org/EIPS/eip-3855>`
+    pub const fn supports_push0(&self) -> bool {
+        match self {
+            Chain::Mainnet | Chain::Goerli | Chain::Sepolia | Chain::Gnosis | Chain::Chiado => true,
+            _ => false,
         }
     }
 
@@ -371,11 +472,21 @@ impl Chain {
             Rinkeby => ("https://api-rinkeby.etherscan.io/api", "https://rinkeby.etherscan.io"),
             Goerli => ("https://api-goerli.etherscan.io/api", "https://goerli.etherscan.io"),
             Sepolia => ("https://api-sepolia.etherscan.io/api", "https://sepolia.etherscan.io"),
+            Holesky => ("https://api-holesky.etherscan.io/api", "https://holesky.etherscan.io"),
 
             Polygon => ("https://api.polygonscan.com/api", "https://polygonscan.com"),
             PolygonMumbai => {
                 ("https://api-testnet.polygonscan.com/api", "https://mumbai.polygonscan.com")
             }
+            PolygonAmoy => ("https://rpc-amoy.polygon.technology", "https://www.oklink.com/amoy"),
+
+            PolygonZkEvm => {
+                ("https://api-zkevm.polygonscan.com/api", "https://zkevm.polygonscan.com")
+            }
+            PolygonZkEvmTestnet => (
+                "https://api-testnet-zkevm.polygonscan.com/api",
+                "https://testnet-zkevm.polygonscan.com",
+            ),
 
             Avalanche => ("https://api.snowtrace.io/api", "https://snowtrace.io"),
             AvalancheFuji => {
@@ -393,6 +504,10 @@ impl Chain {
                 "https://api-kovan-optimistic.etherscan.io/api",
                 "https://kovan-optimistic.etherscan.io",
             ),
+            OptimismSepolia => (
+                "https://api-sepolia-optimistic.etherscan.io/api",
+                "https://sepolia-optimism.etherscan.io",
+            ),
 
             Fantom => ("https://api.ftmscan.com/api", "https://ftmscan.com"),
             FantomTestnet => ("https://api-testnet.ftmscan.com/api", "https://testnet.ftmscan.com"),
@@ -407,6 +522,9 @@ impl Chain {
                 ("https://api-testnet.arbiscan.io/api", "https://testnet.arbiscan.io")
             }
             ArbitrumGoerli => ("https://api-goerli.arbiscan.io/api", "https://goerli.arbiscan.io"),
+            ArbitrumSepolia => {
+                ("https://api-sepolia.arbiscan.io/api", "https://sepolia.arbiscan.io")
+            }
             ArbitrumNova => ("https://api-nova.arbiscan.io/api", "https://nova.arbiscan.io/"),
 
             Cronos => ("https://api.cronoscan.com/api", "https://cronoscan.com"),
@@ -418,22 +536,29 @@ impl Chain {
             Moonbase => ("https://api-moonbase.moonscan.io/api", "https://moonbase.moonscan.io/"),
             Moonriver => ("https://api-moonriver.moonscan.io/api", "https://moonriver.moonscan.io"),
 
-            // blockscout API is etherscan compatible
-            XDai => {
-                ("https://blockscout.com/xdai/mainnet/api", "https://blockscout.com/xdai/mainnet")
+            Gnosis => ("https://api.gnosisscan.io/api", "https://gnosisscan.io"),
+
+            Scroll => ("https://api.scrollscan.com/api", "https://scrollscan.com"),
+            ScrollSepolia => {
+                ("https://api-sepolia.scrollscan.com/api", "https://sepolia.scrollscan.com")
+            }
+            ScrollAlphaTestnet => {
+                ("https://alpha-blockscout.scroll.io/api", "https://alpha-blockscout.scroll.io/")
             }
 
-            ScrollAlphaTestnet => {
-                ("https://blockscout.scroll.io/api", "https://blockscout.scroll.io/")
-            }
+            Metis => (
+                "https://api.routescan.io/v2/network/mainnet/evm/1088/etherscan/api",
+                "https://explorer.metis.io/",
+            ),
 
             Chiado => {
                 ("https://blockscout.chiadochain.net/api", "https://blockscout.chiadochain.net")
             }
 
-            FilecoinHyperspaceTestnet => {
-                ("https://api.hyperspace.node.glif.io/rpc/v1", "https://hyperspace.filfox.info")
-            }
+            FilecoinCalibrationTestnet => (
+                "https://api.calibration.node.glif.io/rpc/v1",
+                "https://calibration.filfox.info/en",
+            ),
 
             Sokol => ("https://blockscout.com/poa/sokol/api", "https://blockscout.com/poa/sokol"),
 
@@ -475,17 +600,58 @@ impl Chain {
 
             Boba => ("https://api.bobascan.com/api", "https://bobascan.com"),
 
+            Base => ("https://api.basescan.org/api", "https://basescan.org"),
+
             BaseGoerli => ("https://api-goerli.basescan.org/api", "https://goerli.basescan.org"),
+            BaseSepolia => ("https://api-sepolia.basescan.org/api", "https://sepolia.basescan.org"),
+
+            Blast => (
+                "https://api.routescan.io/v2/network/mainnet/evm/81457/etherscan",
+                "https://blastscan.io",
+            ),
+            BlastSepolia => (
+                "https://api.routescan.io/v2/network/testnet/evm/168587773/etherscan",
+                "https://testnet.blastscan.io",
+            ),
 
             ZkSync => {
                 ("https://zksync2-mainnet-explorer.zksync.io/", "https://explorer.zksync.io/")
+            }
+            ZkSyncTestnet => (
+                "https://zksync2-testnet-explorer.zksync.dev/",
+                "https://goerli.explorer.zksync.io/",
+            ),
+            Linea => ("https://api.lineascan.build/api", "https://lineascan.build/"),
+            LineaTestnet => {
+                ("https://explorer.goerli.linea.build/api", "https://explorer.goerli.linea.build/")
+            }
+            Mantle => ("https://explorer.mantle.xyz/api", "https://explorer.mantle.xyz"),
+            MantleTestnet => {
+                ("https://explorer.testnet.mantle.xyz/api", "https://explorer.testnet.mantle.xyz")
+            }
+
+            Zora => ("https://explorer.zora.energy/api", "https://explorer.zora.energy"),
+            ZoraGoerli => {
+                ("https://testnet.explorer.zora.energy/api", "https://testnet.explorer.zora.energy")
+            }
+            ZoraSepolia => {
+                ("https://sepolia.explorer.zora.energy/api", "https://sepolia.explorer.zora.energy")
             }
 
             AnvilHardhat | Dev | Morden | MoonbeamDev | FilecoinMainnet => {
                 // this is explicitly exhaustive so we don't forget to add new urls when adding a
                 // new chain
-                return None
+                return None;
             }
+            Viction => ("https://www.vicscan.xyz/api", "https://www.vicscan.xyz"),
+
+            Mode => ("https://explorer.mode.network/api", "https://explorer.mode.network"),
+            ModeSepolia => (
+                "https://sepolia.explorer.mode.network/api",
+                "https://sepolia.explorer.mode.network",
+            ),
+            Elastos => ("https://api.elastos.io/eth", "https://esc.elastos.io/"),
+            Degen => ("https://explorer.degen.tips/api", "https://explorer.degen.tips"),
         };
 
         Some(urls)
@@ -511,14 +677,17 @@ impl Chain {
             Kovan |
             Rinkeby |
             Goerli |
+            Holesky |
             Optimism |
             OptimismGoerli |
             OptimismKovan |
+            OptimismSepolia |
             BinanceSmartChain |
             BinanceSmartChainTestnet |
             Arbitrum |
             ArbitrumTestnet |
             ArbitrumGoerli |
+            ArbitrumSepolia |
             ArbitrumNova |
             Cronos |
             CronosTestnet |
@@ -527,23 +696,37 @@ impl Chain {
             Celo |
             CeloAlfajores |
             CeloBaklava |
-            BaseGoerli => "ETHERSCAN_API_KEY",
+            Base |
+            Linea |
+            Mantle |
+            MantleTestnet |
+            BaseGoerli |
+            BaseSepolia |
+            Blast |
+            BlastSepolia |
+            Gnosis |
+            Scroll |
+            ScrollSepolia => "ETHERSCAN_API_KEY",
 
             Avalanche | AvalancheFuji => "SNOWTRACE_API_KEY",
 
-            Polygon | PolygonMumbai => "POLYGONSCAN_API_KEY",
+            Polygon | PolygonMumbai | PolygonZkEvm | PolygonZkEvmTestnet | PolygonAmoy => {
+                "POLYGONSCAN_API_KEY"
+            }
 
             Fantom | FantomTestnet => "FTMSCAN_API_KEY",
 
             Moonbeam | Moonbase | MoonbeamDev | Moonriver => "MOONSCAN_API_KEY",
 
-            Canto | CantoTestnet => "BLOCKSCOUT_API_KEY",
+            Canto | CantoTestnet | Zora | ZoraGoerli | ZoraSepolia | Mode | ModeSepolia => {
+                "BLOCKSCOUT_API_KEY"
+            }
 
             Boba => "BOBASCAN_API_KEY",
 
             // Explicitly exhaustive. See NB above.
-            XDai |
             ScrollAlphaTestnet |
+            Metis |
             Chiado |
             Sepolia |
             Rsk |
@@ -557,8 +740,13 @@ impl Chain {
             AnvilHardhat |
             Dev |
             ZkSync |
+            ZkSyncTestnet |
             FilecoinMainnet |
-            FilecoinHyperspaceTestnet => return None,
+            LineaTestnet |
+            Viction |
+            FilecoinCalibrationTestnet |
+            Elastos |
+            Degen => return None,
         };
 
         Some(api_key_name)
@@ -626,11 +814,19 @@ mod tests {
             (Mainnet, &["ethlive"]),
             (BinanceSmartChain, &["bsc", "binance-smart-chain"]),
             (BinanceSmartChainTestnet, &["bsc-testnet", "binance-smart-chain-testnet"]),
-            (XDai, &["xdai", "gnosis", "gnosis-chain"]),
+            (Gnosis, &["gnosis", "gnosis-chain"]),
             (PolygonMumbai, &["mumbai"]),
+            (PolygonZkEvm, &["zkevm", "polygon-zkevm"]),
+            (PolygonZkEvmTestnet, &["zkevm-testnet", "polygon-zkevm-testnet"]),
             (AnvilHardhat, &["anvil", "hardhat"]),
             (AvalancheFuji, &["fuji"]),
             (ZkSync, &["zksync"]),
+            (Mantle, &["mantle"]),
+            (MantleTestnet, &["mantle-testnet"]),
+            (Viction, &["viction"]),
+            (Base, &["base"]),
+            (BaseGoerli, &["base-goerli"]),
+            (BaseSepolia, &["base-sepolia"]),
         ];
 
         for &(chain, aliases) in ALIASES {

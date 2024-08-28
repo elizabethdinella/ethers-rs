@@ -2,6 +2,10 @@
 
 Ethereum data types, cryptography and utilities.
 
+> **Warning**
+>
+> This library is in the process of being deprecated. See [#2667](https://github.com/gakonst/ethers-rs/issues/2667) for more information.
+
 It is recommended to use the `utils`, `types` and `abi` re-exports instead of
 the `core` module to simplify your imports.
 
@@ -12,7 +16,7 @@ For more information, please refer to the [book](https://gakonst.com/ethers-rs).
 
 ## Feature flags
 
--   `eip712`: Provides the `Eip712` trait and derive procedural macro for EIP-712 encoding of typed data.
+-   `eip712`: Does nothing.
 
 ## ABI
 

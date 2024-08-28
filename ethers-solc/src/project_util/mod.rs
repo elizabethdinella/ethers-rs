@@ -148,7 +148,7 @@ impl<T: ArtifactOutput> TempProject<T> {
     fn get_lib(&self) -> Result<PathBuf> {
         self.paths()
             .libraries
-            .get(0)
+            .first()
             .cloned()
             .ok_or_else(|| SolcError::msg("No libraries folders configured"))
     }
@@ -324,7 +324,7 @@ contract {} {{}}
     /// Compiles the project and asserts that the output does not contain errors
     pub fn assert_no_errors(&self) -> &Self {
         let compiled = self.compile().unwrap();
-        assert!(!compiled.has_compiler_errors());
+        compiled.assert_success();
         self
     }
 

@@ -1,8 +1,8 @@
 use crate::{
     base::{encode_function_data, AbiError, BaseContract},
     call::FunctionCall,
-    event::{EthEvent, Event},
-    EthLogDecode,
+    event::Event,
+    event_core::EthEvent,
 };
 use ethers_core::{
     abi::{Abi, Detokenize, Error, EventExt, Function, Tokenize},
@@ -125,7 +125,7 @@ pub type Contract<M> = ContractInstance<std::sync::Arc<M>, M>;
 /// use ethers_core::abi::{Detokenize, Token, InvalidOutputType};
 /// # // this is a fake address used just for this example
 /// # let address = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee".parse::<Address>()?;
-/// # let abi: Abi = serde_json::from_str(r#"[]"#)?;
+/// # let abi: Abi = serde_json::from_str("[]")?;
 /// # let client = Provider::<Http>::try_from("http://localhost:8545").unwrap();
 /// # let contract = Contract::new(address, abi, Arc::new(client));
 ///
@@ -238,9 +238,10 @@ where
     B: Borrow<M>,
     M: Middleware,
 {
-    /// Returns an [`Event`](crate::builders::Event) builder for the provided event.
-    /// This function operates in a static context, then it does not require a `self`
-    /// to reference to instantiate an [`Event`](crate::builders::Event) builder.
+    /// Returns an [`Event`] builder for the provided event.
+    ///
+    /// This function operates in a static context, then it does not require a `self` to reference
+    /// to instantiate an [`Event`] builder.
     pub fn event_of_type<D: EthEvent>(client: B) -> Event<B, M, D> {
         Event {
             provider: client,
@@ -299,8 +300,8 @@ where
     B: Clone + Borrow<M>,
     M: Middleware,
 {
-    /// Returns an [`Event`](crate::builders::Event) builder with the provided filter.
-    pub fn event_with_filter<D: EthLogDecode>(&self, filter: Filter) -> Event<B, M, D> {
+    /// Returns an [`Event`] builder with the provided filter.
+    pub fn event_with_filter<D>(&self, filter: Filter) -> Event<B, M, D> {
         Event {
             provider: self.client.clone(),
             filter: filter.address(ValueOrArray::Value(self.address)),
@@ -309,13 +310,13 @@ where
         }
     }
 
-    /// Returns an [`Event`](crate::builders::Event) builder for the provided event.
+    /// Returns an [`Event`] builder for the provided event.
     pub fn event<D: EthEvent>(&self) -> Event<B, M, D> {
-        self.event_with_filter(Filter::new().event(&D::abi_signature()))
+        D::new(Filter::new(), self.client.clone())
     }
 
-    /// Returns an [`Event`](crate::builders::Event) builder with the provided name.
-    pub fn event_for_name<D: EthLogDecode>(&self, name: &str) -> Result<Event<B, M, D>, Error> {
+    /// Returns an [`Event`] builder with the provided name.
+    pub fn event_for_name<D>(&self, name: &str) -> Result<Event<B, M, D>, Error> {
         // get the event's full name
         let event = self.base_contract.abi.event(name)?;
         Ok(self.event_with_filter(Filter::new().event(&event.abi_signature())))

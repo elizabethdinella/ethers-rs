@@ -1,5 +1,7 @@
 // Modified from <https://github.com/tomusdrw/rust-web3/blob/master/src/types/block.rs>
 
+#[cfg(not(feature = "celo"))]
+use crate::types::Withdrawal;
 use crate::types::{Address, Bloom, Bytes, Transaction, TxHash, H256, U256, U64};
 use chrono::{DateTime, TimeZone, Utc};
 use serde::{
@@ -84,6 +86,26 @@ pub struct Block<TX> {
     /// Base fee per unit of gas (if past London)
     #[serde(rename = "baseFeePerGas")]
     pub base_fee_per_gas: Option<U256>,
+    /// Blob gas used (if past Cancun)
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "blobGasUsed")]
+    #[cfg(not(feature = "celo"))]
+    pub blob_gas_used: Option<U256>,
+    /// Excess blob gas (if past Cancun)
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "excessBlobGas")]
+    #[cfg(not(feature = "celo"))]
+    pub excess_blob_gas: Option<U256>,
+    /// Withdrawals root hash (if past Shanghai)
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "withdrawalsRoot")]
+    #[cfg(not(feature = "celo"))]
+    pub withdrawals_root: Option<H256>,
+    /// Withdrawals (if past Shanghai)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg(not(feature = "celo"))]
+    pub withdrawals: Option<Vec<Withdrawal>>,
+    /// Parent beacon block root (if past Cancun)
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "parentBeaconBlockRoot")]
+    #[cfg(not(feature = "celo"))]
+    pub parent_beacon_block_root: Option<H256>,
 
     #[cfg(feature = "celo")]
     #[cfg_attr(docsrs, doc(cfg(feature = "celo")))]
@@ -218,6 +240,11 @@ impl Block<TxHash> {
                 mix_hash,
                 nonce,
                 base_fee_per_gas,
+                withdrawals_root,
+                withdrawals,
+                blob_gas_used,
+                excess_blob_gas,
+                parent_beacon_block_root,
                 other,
                 ..
             } = self;
@@ -243,7 +270,12 @@ impl Block<TxHash> {
                 mix_hash,
                 nonce,
                 base_fee_per_gas,
+                withdrawals_root,
+                withdrawals,
                 transactions,
+                blob_gas_used,
+                excess_blob_gas,
+                parent_beacon_block_root,
                 other,
             }
         }
@@ -322,6 +354,11 @@ impl From<Block<Transaction>> for Block<TxHash> {
                 mix_hash,
                 nonce,
                 base_fee_per_gas,
+                withdrawals_root,
+                withdrawals,
+                excess_blob_gas,
+                blob_gas_used,
+                parent_beacon_block_root,
                 other,
             } = full;
             Block {
@@ -346,6 +383,11 @@ impl From<Block<Transaction>> for Block<TxHash> {
                 mix_hash,
                 nonce,
                 base_fee_per_gas,
+                withdrawals_root,
+                withdrawals,
+                excess_blob_gas,
+                blob_gas_used,
+                parent_beacon_block_root,
                 transactions: transactions.iter().map(|tx| tx.hash).collect(),
                 other,
             }
@@ -420,7 +462,7 @@ pub struct EpochSnarkData {
 }
 
 /// A [block hash](H256) or [block number](BlockNumber).
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub enum BlockId {
     // TODO: May want to expand this to include the requireCanonical field
     // <https://github.com/ethereum/EIPs/blob/master/EIPS/eip-1898.md>
@@ -916,7 +958,6 @@ mod tests {
 #[cfg(feature = "celo")]
 mod celo_tests {
     use super::*;
-    use crate::types::Transaction;
 
     #[test]
     fn block_without_snark_data() {

@@ -12,8 +12,10 @@ use crate::{
 };
 use contracts::{VersionedContract, VersionedContracts};
 use semver::Version;
+use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, fmt, path::Path};
 use tracing::trace;
+use yansi::Paint;
 
 pub mod contracts;
 pub mod info;
@@ -47,6 +49,16 @@ impl<T: ArtifactOutput> ProjectCompileOutput<T> {
     pub fn with_slashed_paths(mut self) -> Self {
         self.slash_paths();
         self
+    }
+
+    /// All artifacts together with their contract file name and name `<file name>:<name>`.
+    ///
+    /// This returns a chained iterator of both cached and recompiled contract artifacts.
+    ///
+    /// Borrowed version of [`Self::into_artifacts`].
+    pub fn artifact_ids(&self) -> impl Iterator<Item = (ArtifactId, &T::Artifact)> + '_ {
+        let Self { cached_artifacts, compiled_artifacts, .. } = self;
+        cached_artifacts.artifacts::<T>().chain(compiled_artifacts.artifacts::<T>())
     }
 
     /// All artifacts together with their contract file name and name `<file name>:<name>`
@@ -86,7 +98,7 @@ impl<T: ArtifactOutput> ProjectCompileOutput<T> {
     }
 
     /// This returns a chained iterator of both cached and recompiled contract artifacts that yields
-    /// the contract name and the corresponding artifact
+    /// the contract name and the corresponding artifact with its version
     ///
     /// # Example
     ///
@@ -107,6 +119,22 @@ impl<T: ArtifactOutput> ProjectCompileOutput<T> {
                 T::contract_name(&artifact.file)
                     .map(|name| (name, (&artifact.artifact, &artifact.version)))
             })
+    }
+
+    /// All artifacts together with their contract file and name as tuple `(file, contract
+    /// name, artifact)`
+    ///
+    /// This returns a chained iterator of both cached and recompiled contract artifacts
+    ///
+    /// Borrowed version of [`Self::into_artifacts_with_files`].
+    ///
+    /// **NOTE** the `file` will be returned as is, see also
+    /// [`Self::with_stripped_file_prefixes()`].
+    pub fn artifacts_with_files(
+        &self,
+    ) -> impl Iterator<Item = (&String, &String, &T::Artifact)> + '_ {
+        let Self { cached_artifacts, compiled_artifacts, .. } = self;
+        cached_artifacts.artifacts_with_files().chain(compiled_artifacts.artifacts_with_files())
     }
 
     /// All artifacts together with their contract file and name as tuple `(file, contract
@@ -187,24 +215,37 @@ impl<T: ArtifactOutput> ProjectCompileOutput<T> {
         self.compiler_output
     }
 
-    /// Whether this type has a compiler output
+    /// Returns whether this type has a compiler output.
     pub fn has_compiled_contracts(&self) -> bool {
         self.compiler_output.is_empty()
     }
 
-    /// Whether this type does not contain compiled contracts
+    /// Returns whether this type does not contain compiled contracts.
     pub fn is_unchanged(&self) -> bool {
         self.compiler_output.is_unchanged()
     }
 
-    /// Whether there were errors
+    /// Returns whether any errors were emitted by the compiler.
     pub fn has_compiler_errors(&self) -> bool {
         self.compiler_output.has_error(&self.ignored_error_codes, &self.compiler_severity_filter)
     }
 
-    /// Whether there were warnings
+    /// Returns whether any warnings were emitted by the compiler.
     pub fn has_compiler_warnings(&self) -> bool {
         self.compiler_output.has_warning(&self.ignored_error_codes)
+    }
+
+    /// Panics if any errors were emitted by the compiler.
+    #[track_caller]
+    pub fn succeeded(self) -> Self {
+        self.assert_success();
+        self
+    }
+
+    /// Panics if any errors were emitted by the compiler.
+    #[track_caller]
+    pub fn assert_success(&self) {
+        assert!(!self.has_compiler_errors(), "\n{self}\n");
     }
 
     /// Returns the set of `Artifacts` that were cached and got reused during
@@ -401,7 +442,7 @@ impl<T: ArtifactOutput> fmt::Display for ProjectCompileOutput<T> {
             f.write_str("Nothing to compile")
         } else {
             self.compiler_output
-                .diagnostics(&self.ignored_error_codes, self.compiler_severity_filter.clone())
+                .diagnostics(&self.ignored_error_codes, self.compiler_severity_filter)
                 .fmt(f)
         }
     }
@@ -410,7 +451,7 @@ impl<T: ArtifactOutput> fmt::Display for ProjectCompileOutput<T> {
 /// The aggregated output of (multiple) compile jobs
 ///
 /// This is effectively a solc version aware `CompilerOutput`
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct AggregatedCompilerOutput {
     /// all errors from all `CompilerOutput`
     pub errors: Vec<Error>,
@@ -751,35 +792,38 @@ impl<'a> OutputDiagnostics<'a> {
 
 impl<'a> fmt::Display for OutputDiagnostics<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("Compiler run ")?;
         if self.has_error() {
-            f.write_str("Compiler run failed")?;
+            Paint::red("failed:")
         } else if self.has_warning() {
-            f.write_str("Compiler run successful (with warnings)")?;
+            Paint::yellow("successful with warnings:")
         } else {
-            f.write_str("Compiler run successful")?;
+            Paint::green("successful!")
         }
+        .fmt(f)?;
+
         for err in &self.compiler_output.errors {
+            let mut ignored = false;
             if err.severity.is_warning() {
-                let is_ignored = err.error_code.as_ref().map_or(false, |code| {
+                if let Some(code) = err.error_code {
                     if let Some(source_location) = &err.source_location {
                         // we ignore spdx and contract size warnings in test
                         // files. if we are looking at one of these warnings
                         // from a test file we skip
-                        if self.is_test(&source_location.file) && (*code == 1878 || *code == 5574) {
-                            return true
-                        }
+                        ignored =
+                            self.is_test(&source_location.file) && (code == 1878 || code == 5574);
                     }
 
-                    self.ignored_error_codes.contains(code)
-                });
-
-                if !is_ignored {
-                    writeln!(f, "\n{err}")?;
+                    ignored |= self.ignored_error_codes.contains(&code);
                 }
-            } else {
-                writeln!(f, "\n{err}")?;
+            }
+
+            if !ignored {
+                f.write_str("\n")?;
+                err.fmt(f)?;
             }
         }
+
         Ok(())
     }
 }

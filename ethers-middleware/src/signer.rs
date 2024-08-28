@@ -1,12 +1,10 @@
+use async_trait::async_trait;
 use ethers_core::types::{
     transaction::{eip2718::TypedTransaction, eip2930::AccessListWithGasUsed},
     Address, BlockId, Bytes, Chain, Signature, TransactionRequest, U256,
 };
 use ethers_providers::{maybe, Middleware, MiddlewareError, PendingTransaction};
 use ethers_signers::Signer;
-use std::convert::TryFrom;
-
-use async_trait::async_trait;
 use thiserror::Error;
 
 #[derive(Clone, Debug)]
@@ -356,7 +354,7 @@ where
     }
 }
 
-#[cfg(all(test, not(feature = "celo"), not(target_arch = "wasm32")))]
+#[cfg(all(test, not(feature = "celo")))]
 mod tests {
     use super::*;
     use ethers_core::{
@@ -545,7 +543,7 @@ mod tests {
         };
         let mut tx = TypedTransaction::Eip1559(eip1559);
 
-        let chain_id = 10u64; // optimism does not support EIP-1559
+        let chain_id = 324u64; // zksync does not support EIP-1559
 
         // Signer middlewares now rely on a working provider which it can query the chain id from,
         // so we make sure Anvil is started with the chain id that the expected tx was signed

@@ -8,12 +8,14 @@ mod types;
 
 use super::{util, Abigen};
 use crate::contract::{methods::MethodAlias, structs::InternalStructs};
+#[cfg(feature = "providers")]
+use ethers_core::macros::ethers_providers_crate;
 use ethers_core::{
     abi::{Abi, AbiParser, ErrorExt, EventExt, JsonAbi},
-    macros::{ethers_contract_crate, ethers_core_crate, ethers_providers_crate},
+    macros::{ethers_contract_crate, ethers_core_crate},
     types::Bytes,
 };
-use eyre::{eyre, Context as _, Result};
+use eyre::{eyre, Result};
 use proc_macro2::{Ident, Literal, TokenStream};
 use quote::{format_ident, quote};
 use serde::Deserialize;
@@ -42,6 +44,11 @@ pub struct ExpandedContract {
 impl ExpandedContract {
     /// Merges everything into a single module
     pub fn into_tokens(self) -> TokenStream {
+        self.into_tokens_with_path(None)
+    }
+
+    /// Merges everything into a single module, with an `include_bytes!` to the given path
+    pub fn into_tokens_with_path(self, path: Option<&std::path::Path>) -> TokenStream {
         let ExpandedContract {
             module,
             imports,
@@ -51,6 +58,12 @@ impl ExpandedContract {
             abi_structs,
             errors,
         } = self;
+
+        let include_tokens = path.and_then(|path| path.to_str()).map(|s| {
+            quote! {
+                const _: () = { ::core::include_bytes!(#s); };
+            }
+        });
 
         quote! {
             pub use #module::*;
@@ -67,6 +80,7 @@ impl ExpandedContract {
             )]
             pub mod #module {
                 #imports
+                #include_tokens
                 #contract
                 #errors
                 #events
@@ -79,9 +93,6 @@ impl ExpandedContract {
 
 /// Internal shared context for generating smart contract bindings.
 pub struct Context {
-    /// The ABI string pre-parsing.
-    abi_str: Literal,
-
     /// The parsed ABI.
     abi: Abi,
 
@@ -122,9 +133,7 @@ pub struct Context {
 impl Context {
     /// Generates the tokens.
     pub fn expand(&self) -> Result<ExpandedContract> {
-        let name = &self.contract_ident;
         let name_mod = util::ident(&util::safe_module_name(&self.contract_name));
-        let abi_name = self.inline_abi_ident();
 
         // 1. Declare Contract struct
         let struct_decl = self.struct_declaration();
@@ -132,27 +141,36 @@ impl Context {
         // 2. Declare events structs & impl FromTokens for each event
         let events_decl = self.events_declaration()?;
 
-        // 3. impl block for the event functions
-        let contract_events = self.event_methods()?;
-
-        // 4. impl block for the contract methods and their corresponding types
+        // 3. impl block for the contract methods and their corresponding types
         let (contract_methods, call_structs) = self.methods_and_call_structs()?;
 
-        // 5. The deploy method, only if the contract has a bytecode object
-        let deployment_methods = self.deployment_methods();
-
-        // 6. Declare the structs parsed from the human readable abi
+        // 4. Declare the structs parsed from the human readable abi
         let abi_structs_decl = self.abi_structs()?;
 
-        // 7. declare all error types
+        // 5. declare all error types
         let errors_decl = self.errors()?;
 
-        let ethers_core = ethers_core_crate();
-        let ethers_contract = ethers_contract_crate();
-        let ethers_providers = ethers_providers_crate();
-
         let contract = quote! {
-                #struct_decl
+            #struct_decl
+        };
+
+        #[cfg(feature = "providers")]
+        let contract = {
+            let name = &self.contract_ident;
+            let abi_name = self.inline_abi_ident();
+
+            // 6. impl block for the event functions
+            let contract_events = self.event_methods()?;
+
+            // 7. The deploy method, only if the contract has a bytecode object
+            let deployment_methods = self.deployment_methods();
+
+            let ethers_core = ethers_core_crate();
+            let ethers_contract = ethers_contract_crate();
+            let ethers_providers = ethers_providers_crate();
+
+            quote! {
+                #contract
 
                 impl<M: #ethers_providers::Middleware> #name<M> {
                     /// Creates a new contract instance with the specified `ethers` client at
@@ -173,7 +191,12 @@ impl Context {
                         Self::new(contract.address(), contract.client())
                     }
                 }
+            }
         };
+
+        // Avoid having a warning
+        #[cfg(not(feature = "providers"))]
+        let _ = contract_methods;
 
         Ok(ExpandedContract {
             module: name_mod,
@@ -189,8 +212,7 @@ impl Context {
     /// Create a context from the code generation arguments.
     pub fn from_abigen(args: Abigen) -> Result<Self> {
         // get the actual ABI string
-        let mut abi_str =
-            args.abi_source.get().map_err(|e| eyre!("failed to get ABI JSON: {e}"))?;
+        let abi_str = args.abi_source.get().map_err(|e| eyre!("failed to get ABI JSON: {e}"))?;
 
         // holds the bytecode parsed from the abi_str, if present
         let mut contract_bytecode = None;
@@ -198,8 +220,8 @@ impl Context {
         // holds the deployed bytecode parsed from the abi_str, if present
         let mut contract_deployed_bytecode = None;
 
-        let (abi, human_readable, abi_parser) = parse_abi(&abi_str).wrap_err_with(|| {
-            eyre::eyre!("error parsing abi for contract: {}", args.contract_name)
+        let (abi, human_readable, abi_parser) = parse_abi(&abi_str).map_err(|e| {
+            eyre::eyre!("error parsing abi for contract '{}': {e}", args.contract_name)
         })?;
 
         // try to extract all the solidity structs from the normal JSON ABI
@@ -221,9 +243,6 @@ impl Context {
         } else {
             match serde_json::from_str::<JsonAbi>(&abi_str)? {
                 JsonAbi::Object(obj) => {
-                    // need to update the `abi_str` here because we only want the `"abi": [...]`
-                    // part of the json object in the contract binding
-                    abi_str = serde_json::to_string(&obj.abi)?;
                     contract_bytecode = obj.bytecode;
                     contract_deployed_bytecode = obj.deployed_bytecode;
                     InternalStructs::new(obj.abi)
@@ -282,7 +301,6 @@ impl Context {
         Ok(Self {
             abi,
             human_readable,
-            abi_str: Literal::string(&abi_str),
             abi_parser,
             internal_structs,
             contract_name: args.contract_name.to_string(),
@@ -335,62 +353,56 @@ impl Context {
 
     /// Generates the token stream for the contract's ABI, bytecode and struct declarations.
     pub(crate) fn struct_declaration(&self) -> TokenStream {
-        let name = &self.contract_ident;
-
         let ethers_core = ethers_core_crate();
         let ethers_contract = ethers_contract_crate();
 
         let abi = {
-            let abi_name = self.inline_abi_ident();
-            let abi = &self.abi_str;
-            let (doc_str, parse) = if self.human_readable {
-                // Human readable: use abi::parse_abi_str
-                let doc_str = "The parsed human-readable ABI of the contract.";
-                let parse = quote!(#ethers_core::abi::parse_abi_str(__ABI));
-                (doc_str, parse)
+            let doc_str = if self.human_readable {
+                "The parsed human-readable ABI of the contract."
             } else {
-                // JSON ABI: use serde_json::from_str
-                let doc_str = "The parsed JSON ABI of the contract.";
-                let parse = quote!(#ethers_core::utils::__serde_json::from_str(__ABI));
-                (doc_str, parse)
+                "The parsed JSON ABI of the contract."
             };
-
+            let abi_name = self.inline_abi_ident();
+            let abi = crate::verbatim::generate(&self.abi, &ethers_core);
             quote! {
-                #[rustfmt::skip]
-                const __ABI: &str = #abi;
+                #[allow(deprecated)]
+                fn __abi() -> #ethers_core::abi::Abi {
+                    #abi
+                }
 
-                // This never fails as we are parsing the ABI in this macro
                 #[doc = #doc_str]
                 pub static #abi_name: #ethers_contract::Lazy<#ethers_core::abi::Abi> =
-                    #ethers_contract::Lazy::new(|| #parse.expect("ABI is always valid"));
+                    #ethers_contract::Lazy::new(__abi);
             }
         };
 
         let bytecode = self.contract_bytecode.as_ref().map(|bytecode| {
-        let bytecode = bytecode.iter().copied().map(Literal::u8_unsuffixed);
+            let bytecode = Literal::byte_string(bytecode);
             let bytecode_name = self.inline_bytecode_ident();
             quote! {
                 #[rustfmt::skip]
-                const __BYTECODE: &[u8] = &[ #( #bytecode ),* ];
+                const __BYTECODE: &[u8] = #bytecode;
 
-                #[doc = "The bytecode of the contract."]
-                pub static #bytecode_name: #ethers_core::types::Bytes = #ethers_core::types::Bytes::from_static(__BYTECODE);
+                /// The bytecode of the contract.
+                pub static #bytecode_name: #ethers_core::types::Bytes =
+                    #ethers_core::types::Bytes::from_static(__BYTECODE);
             }
         });
 
         let deployed_bytecode = self.contract_deployed_bytecode.as_ref().map(|bytecode| {
-            let bytecode = bytecode.iter().copied().map(Literal::u8_unsuffixed);
+            let bytecode = Literal::byte_string(bytecode);
             let bytecode_name = self.inline_deployed_bytecode_ident();
             quote! {
                 #[rustfmt::skip]
-                const __DEPLOYED_BYTECODE: &[u8] = &[ #( #bytecode ),* ];
+                const __DEPLOYED_BYTECODE: &[u8] = #bytecode;
 
-                #[doc = "The deployed bytecode of the contract."]
-                pub static #bytecode_name: #ethers_core::types::Bytes = #ethers_core::types::Bytes::from_static(__DEPLOYED_BYTECODE);
+                /// The deployed bytecode of the contract.
+                pub static #bytecode_name: #ethers_core::types::Bytes =
+                    #ethers_core::types::Bytes::from_static(__DEPLOYED_BYTECODE);
             }
         });
 
-        quote! {
+        let code = quote! {
             // The `Lazy` ABI
             #abi
 
@@ -399,41 +411,52 @@ impl Context {
 
             // The static deployed Bytecode, if present
             #deployed_bytecode
+        };
 
-            // Struct declaration
-            pub struct #name<M>(#ethers_contract::Contract<M>);
+        #[cfg(feature = "providers")]
+        let code = {
+            let name = &self.contract_ident;
 
-            // Manual implementation since `M` is stored in `Arc<M>` and does not need to be `Clone`
-            impl<M> ::core::clone::Clone for #name<M> {
-                fn clone(&self) -> Self {
-                    Self(::core::clone::Clone::clone(&self.0))
+            quote! {
+                #code
+
+                // Struct declaration
+                pub struct #name<M>(#ethers_contract::Contract<M>);
+
+                // Manual implementation since `M` is stored in `Arc<M>` and does not need to be `Clone`
+                impl<M> ::core::clone::Clone for #name<M> {
+                    fn clone(&self) -> Self {
+                        Self(::core::clone::Clone::clone(&self.0))
+                    }
+                }
+
+                // Deref to the inner contract to have access to all its methods
+                impl<M> ::core::ops::Deref for #name<M> {
+                    type Target = #ethers_contract::Contract<M>;
+
+                    fn deref(&self) -> &Self::Target {
+                        &self.0
+                    }
+                }
+
+                impl<M> ::core::ops::DerefMut for #name<M> {
+                    fn deref_mut(&mut self) -> &mut Self::Target {
+                        &mut self.0
+                    }
+                }
+
+                // `<name>(<address>)`
+                impl<M> ::core::fmt::Debug for #name<M> {
+                    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+                        f.debug_tuple(::core::stringify!(#name))
+                            .field(&self.address())
+                            .finish()
+                    }
                 }
             }
+        };
 
-            // Deref to the inner contract to have access to all its methods
-            impl<M> ::core::ops::Deref for #name<M> {
-                type Target = #ethers_contract::Contract<M>;
-
-                fn deref(&self) -> &Self::Target {
-                    &self.0
-                }
-            }
-
-            impl<M> ::core::ops::DerefMut for #name<M> {
-                fn deref_mut(&mut self) -> &mut Self::Target {
-                    &mut self.0
-                }
-            }
-
-            // `<name>(<address>)`
-            impl<M> ::core::fmt::Debug for #name<M> {
-                fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
-                    f.debug_tuple(stringify!(#name))
-                        .field(&self.address())
-                        .finish()
-                }
-            }
-        }
+        code
     }
 }
 
@@ -465,16 +488,15 @@ where
 /// Parse the abi via `Source::parse` and return if the abi defined as human readable
 fn parse_abi(abi_str: &str) -> Result<(Abi, bool, AbiParser)> {
     let mut abi_parser = AbiParser::default();
-    let res = if let Ok(abi) = abi_parser.parse_str(abi_str) {
-        (abi, true, abi_parser)
-    } else {
-        // a best-effort coercion of an ABI or an artifact JSON into an artifact JSON.
-        let contract: JsonContract = serde_json::from_str(abi_str)
-            .wrap_err_with(|| eyre::eyre!("failed deserializing abi:\n{}", abi_str))?;
-
-        (contract.into_abi(), false, abi_parser)
-    };
-    Ok(res)
+    match abi_parser.parse_str(abi_str) {
+        Ok(abi) => Ok((abi, true, abi_parser)),
+        Err(e) => match serde_json::from_str::<JsonContract>(abi_str) {
+            Ok(contract) => Ok((contract.into_abi(), false, abi_parser)),
+            Err(e2) => Err(eyre::eyre!(
+                "couldn't parse ABI string as either human readable (1) or JSON (2):\n1. {e}\n2. {e2}"
+            )),
+        },
+    }
 }
 
 #[derive(Deserialize)]

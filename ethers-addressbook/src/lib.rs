@@ -1,6 +1,6 @@
 #![doc = include_str!("../README.md")]
 #![deny(unsafe_code, rustdoc::broken_intra_doc_links)]
-#![cfg_attr(docsrs, feature(doc_cfg))]
+#![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg))]
 
 pub use ethers_core::types::{Address, Chain};
 
@@ -41,6 +41,7 @@ mod tests {
     fn test_tokens() {
         assert!(contract("dai").is_some());
         assert!(contract("usdc").is_some());
+        assert!(contract("usdt").is_some());
         assert!(contract("rand").is_none());
     }
 

@@ -5,7 +5,6 @@ use crate::{
     SolcError,
 };
 use rand::{
-    self,
     distributions::{Distribution, Uniform},
     seq::SliceRandom,
     Rng,
@@ -73,7 +72,7 @@ impl MockProjectGenerator {
         // stores libs and their files
         let libs = get_libs(
             &edges,
-            &paths.libraries.get(0).cloned().unwrap_or_else(|| paths.root.join("lib")),
+            &paths.libraries.first().cloned().unwrap_or_else(|| paths.root.join("lib")),
         )
         .ok_or_else(|| SolcError::msg("Failed to detect libs"))?;
 
@@ -380,9 +379,6 @@ trait NamingStrategy {
     /// Return a new name for the given source file id
     fn new_source_file_name(&mut self, id: usize) -> String;
 
-    /// Return a new name for the given source file id
-    fn new_lib_file_name(&mut self, id: usize) -> String;
-
     /// Return a new name for the given lib id
     fn new_lib_name(&mut self, id: usize) -> String;
 }
@@ -396,10 +392,6 @@ pub struct SimpleNamingStrategy {
 impl NamingStrategy for SimpleNamingStrategy {
     fn new_source_file_name(&mut self, id: usize) -> String {
         format!("SourceFile{id}")
-    }
-
-    fn new_lib_file_name(&mut self, id: usize) -> String {
-        format!("LibFile{id}")
     }
 
     fn new_lib_name(&mut self, id: usize) -> String {

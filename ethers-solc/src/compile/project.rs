@@ -77,9 +77,9 @@
 //!
 //! ### Caching and Change detection
 //!
-//! If caching is enabled in the [Project](crate::Project) a cache file will be created upon a
-//! successful solc build. The [cache file](crate::cache::SolFilesCache) stores metadata for all the
-//! files that were provided to solc.
+//! If caching is enabled in the [Project] a cache file will be created upon a successful solc
+//! build. The [cache file](crate::cache::SolFilesCache) stores metadata for all the files that were
+//! provided to solc.
 //! For every file the cache file contains a dedicated [cache entry](crate::cache::CacheEntry),
 //! which represents the state of the file. A solidity file can contain several contracts, for every
 //! contract a separate [artifact](crate::Artifact) is emitted. Therefor the entry also tracks all
@@ -361,7 +361,7 @@ impl<'a, T: ArtifactOutput> ArtifactsState<'a, T> {
         let ArtifactsState { output, cache, compiled_artifacts } = self;
         let project = cache.project();
         let ignored_error_codes = project.ignored_error_codes.clone();
-        let compiler_severity_filter = project.compiler_severity_filter.clone();
+        let compiler_severity_filter = project.compiler_severity_filter;
         let has_error = output.has_error(&ignored_error_codes, &compiler_severity_filter);
         let skip_write_to_disk = project.no_artifacts || has_error;
         trace!(has_error, project.no_artifacts, skip_write_to_disk, cache_path=?project.cache_path(),"prepare writing cache file");
@@ -676,12 +676,10 @@ fn compile_parallel(
 }
 
 #[cfg(test)]
-#[cfg(feature = "project-util")]
+#[cfg(all(feature = "project-util", feature = "svm-solc"))]
 mod tests {
     use super::*;
     use crate::{project_util::TempProject, MinimalCombinedArtifacts};
-
-    use std::path::PathBuf;
 
     #[allow(unused)]
     fn init_tracing() {
@@ -716,7 +714,7 @@ mod tests {
         let project = TempProject::<MinimalCombinedArtifacts>::new(paths).unwrap();
 
         let compiled = project.compile().unwrap();
-        assert!(!compiled.has_compiler_errors());
+        compiled.assert_success();
 
         let inner = project.project();
         let compiler = ProjectCompiler::new(inner).unwrap();
@@ -752,16 +750,16 @@ mod tests {
 
         tmp.add_source(
             "C",
-            r#"
+            r"
     pragma solidity ^0.8.10;
     contract C {
             function hello() public {}
     }
-   "#,
+   ",
         )
         .unwrap();
         let compiled = tmp.compile().unwrap();
-        assert!(!compiled.has_compiler_errors());
+        compiled.assert_success();
 
         tmp.artifacts_snapshot().unwrap().assert_artifacts_essentials_present();
 

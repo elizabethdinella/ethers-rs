@@ -49,6 +49,7 @@ impl Context {
     }
 
     /// Returns all deploy (constructor) implementations
+    #[cfg(feature = "providers")]
     pub(crate) fn deployment_methods(&self) -> Option<TokenStream> {
         // don't generate deploy if no bytecode
         self.contract_bytecode.as_ref()?;
@@ -162,7 +163,7 @@ impl Context {
         );
 
         let mut derives = self.expand_extra_derives();
-        let params = function.inputs.iter().map(|param| &param.kind);
+        let params = function.outputs.iter().map(|param| &param.kind);
         util::derive_builtin_traits(params, &mut derives, true, true);
 
         let ethers_contract = ethers_contract_crate();
@@ -636,8 +637,6 @@ fn expand_call_struct_variant_name(function: &Function, alias: Option<&MethodAli
 
 #[cfg(test)]
 mod tests {
-    use ethers_core::abi::ParamType;
-
     use super::*;
 
     fn expand_fn_outputs(outputs: &[Param]) -> Result<TokenStream> {
