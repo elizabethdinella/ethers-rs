@@ -33,14 +33,11 @@ mod genesis_string {
         T: Serialize,
         S: Serializer,
     {
-        let json = match value {
-            GenesisOption::None => Cow::from(""),
-            GenesisOption::Genesis => Cow::from("GENESIS"),
-            GenesisOption::Some(value) => {
-                serde_json::to_string(value).map_err(S::Error::custom)?.into()
-            }
-        };
-        serializer.serialize_str(&json)
+        match value {
+            GenesisOption::None => serializer.serialize_str(""),
+            GenesisOption::Genesis => serializer.serialize_str("GENESIS"),
+            GenesisOption::Some(value) => value.serialize(serializer),
+        }
     }
 
     pub fn deserialize<'de, T, D>(
@@ -76,11 +73,10 @@ mod json_string {
         T: Serialize,
         S: Serializer,
     {
-        let json = match value {
-            Option::None => Cow::from(""),
-            Option::Some(value) => serde_json::to_string(value).map_err(S::Error::custom)?.into(),
-        };
-        serializer.serialize_str(&json)
+        match value {
+            Option::None => serializer.serialize_str(""),
+            Option::Some(value) => value.serialize(serializer),
+        }
     }
 
     pub fn deserialize<'de, T, D>(deserializer: D) -> std::result::Result<Option<T>, D::Error>
