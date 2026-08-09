@@ -47,6 +47,8 @@ pub struct Client {
     etherscan_api_url: Url,
     /// Etherscan base endpoint like <https://etherscan.io>
     etherscan_url: Url,
+    /// Chain id sent as the `chainid` query param (Etherscan API V2)
+    chain_id: Option<u64>,
     /// Path to where ABI files should be cached
     cache: Option<Cache>,
 }
@@ -247,6 +249,7 @@ impl Client {
             apikey: self.api_key.as_deref().map(Cow::Borrowed),
             module: Cow::Borrowed(module),
             action: Cow::Borrowed(action),
+            chainid: self.chain_id,
             other,
         }
     }
@@ -262,6 +265,8 @@ pub struct ClientBuilder {
     etherscan_api_url: Option<Url>,
     /// Etherscan base endpoint like <https://etherscan.io>
     etherscan_url: Option<Url>,
+    /// Chain id sent as the `chainid` query param (Etherscan API V2)
+    chain_id: Option<u64>,
     /// Path to where ABI files should be cached
     cache: Option<Cache>,
 }
@@ -275,17 +280,16 @@ impl ClientBuilder {
     ///
     /// Fails if the chain is not supported by etherscan
     pub fn chain(self, chain: Chain) -> Result<Self> {
-        fn urls(
-            api: impl IntoUrl,
-            url: impl IntoUrl,
-        ) -> (reqwest::Result<Url>, reqwest::Result<Url>) {
-            (api.into_url(), url.into_url())
-        }
-        let (etherscan_api_url, etherscan_url) = chain
+        // Etherscan API V1 was deprecated on 2025-08-15; V2 uses a single
+        // base URL for all chains plus a `chainid` query parameter.
+        let etherscan_url = chain
             .etherscan_urls()
-            .map(|(api, base)| urls(api, base))
+            .map(|(_, base)| base)
             .ok_or_else(|| EtherscanError::ChainNotSupported(chain))?;
-        self.with_api_url(etherscan_api_url?)?.with_url(etherscan_url?)
+        Ok(self
+            .with_api_url("https://api.etherscan.io/v2/api")?
+            .with_url(ensure_url(etherscan_url)?)?
+            .with_chain_id(Some(u64::from(chain))))
     }
 
     /// Configures the etherscan url
@@ -320,6 +324,12 @@ impl ClientBuilder {
         self
     }
 
+    /// Configures the chain id used for the Etherscan API V2 `chainid` parameter
+    pub fn with_chain_id(mut self, chain_id: Option<u64>) -> Self {
+        self.chain_id = chain_id;
+        self
+    }
+
     /// Configures cache for etherscan request
     pub fn with_cache(mut self, cache_root: Option<PathBuf>, cache_ttl: Duration) -> Self {
         self.cache = cache_root.map(|root| Cache::new(root, cache_ttl));
@@ -334,7 +344,7 @@ impl ClientBuilder {
     ///   - `etherscan_api_url`
     ///   - `etherscan_url`
     pub fn build(self) -> Result<Client> {
-        let ClientBuilder { client, api_key, etherscan_api_url, etherscan_url, cache } = self;
+        let ClientBuilder { client, api_key, etherscan_api_url, etherscan_url, chain_id, cache } = self;
 
         let client = Client {
             client: client.unwrap_or_default(),
@@ -343,6 +353,7 @@ impl ClientBuilder {
                 .ok_or_else(|| EtherscanError::Builder("etherscan api url".to_string()))?,
             etherscan_url: etherscan_url
                 .ok_or_else(|| EtherscanError::Builder("etherscan url".to_string()))?,
+            chain_id,
             cache,
         };
         Ok(client)
@@ -455,6 +466,8 @@ struct Query<'a, T: Serialize> {
     apikey: Option<Cow<'a, str>>,
     module: Cow<'a, str>,
     action: Cow<'a, str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    chainid: Option<u64>,
     #[serde(flatten)]
     other: T,
 }
@@ -493,10 +506,44 @@ mod tests {
 
     #[test]
     fn test_api_paths() {
+        // Etherscan API V1 was deprecated; all chains now use the V2 base URL.
         let client = Client::new(Chain::Goerli, "").unwrap();
-        assert_eq!(client.etherscan_api_url.as_str(), "https://api-goerli.etherscan.io/api/");
+        assert_eq!(
+            client.etherscan_api_url.as_str(),
+            "https://api.etherscan.io/v2/api/"
+        );
 
         assert_eq!(client.block_url(100), "https://goerli.etherscan.io/block/100");
+    }
+
+    #[test]
+    fn v2_api_sends_chainid() {
+        use std::collections::HashMap;
+
+        let client = Client::new(Chain::Mainnet, "testkey").unwrap();
+        assert_eq!(
+            client.etherscan_api_url.as_str(),
+            "https://api.etherscan.io/v2/api/"
+        );
+        // display links still use the chain's base URL
+        assert_eq!(client.block_url(100), "https://etherscan.io/block/100");
+
+        let query = client.create_query(
+            "contract",
+            "getsourcecode",
+            HashMap::from([("address", Address::zero())]),
+        );
+        let v = serde_json::to_value(&query).unwrap();
+        assert_eq!(v["chainid"], 1);
+        assert_eq!(v["apikey"], "testkey");
+
+        let client_bsc = Client::new(Chain::BinanceSmartChain, "testkey").unwrap();
+        let q = client_bsc.create_query("account", "txlist", HashMap::<&str, String>::new());
+        assert_eq!(serde_json::to_value(&q).unwrap()["chainid"], 56);
+
+        let client_poly = Client::new(Chain::Polygon, "testkey").unwrap();
+        let q = client_poly.create_query("account", "txlist", HashMap::<&str, String>::new());
+        assert_eq!(serde_json::to_value(&q).unwrap()["chainid"], 137);
     }
 
     #[test]
